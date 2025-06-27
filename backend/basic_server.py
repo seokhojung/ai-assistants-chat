@@ -40,6 +40,13 @@ except Exception as e:
 
 class APIHandler(BaseHTTPRequestHandler):
     
+    def _is_valid_excel_file(self, filename):
+        """유효한 Excel 파일인지 확인하는 헬퍼 함수"""
+        return (filename.endswith('.xlsx') and 
+                not filename.startswith('~') and  # Excel 임시 파일
+                not filename.startswith('.') and  # 숨김 파일
+                not filename.startswith('$'))     # 시스템 파일
+    
     def _set_cors_headers(self):
         """CORS 헤더 설정"""
         self.send_header('Access-Control-Allow-Origin', '*')
@@ -762,7 +769,8 @@ class APIHandler(BaseHTTPRequestHandler):
                 category_path = os.path.join(base_path, category)
                 if os.path.exists(category_path):
                     for filename in os.listdir(category_path):
-                        if filename.endswith('.xlsx'):
+                        # 유효한 Excel 파일만 처리
+                        if self._is_valid_excel_file(filename):
                             file_path = os.path.join(category_path, filename)
                             file_stat = os.stat(file_path)
                             

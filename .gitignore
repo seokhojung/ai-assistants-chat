@@ -108,6 +108,11 @@ Thumbs.db
 *.temp
 *~
 
+# Excel temporary files
+~$*
+~*.xlsx
+~*.xls
+
 # Editor backups
 *~
 .#*

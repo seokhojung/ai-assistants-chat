@@ -1274,10 +1274,16 @@ class APIHandler(BaseHTTPRequestHandler):
             return
         elif path.startswith('/api/v1/files/download/'):
             file_path = path.replace('/api/v1/files/download/', '')
+            # URL 디코딩 추가 (한국어 파일명 지원)
+            from urllib.parse import unquote
+            file_path = unquote(file_path)
             self._handle_file_download(file_path)
             return
         elif path.startswith('/api/v1/files/preview/'):
             file_path = path.replace('/api/v1/files/preview/', '')
+            # URL 디코딩 추가 (한국어 파일명 지원)
+            from urllib.parse import unquote
+            file_path = unquote(file_path)
             self._handle_file_preview(file_path)
             return
         

@@ -102,25 +102,23 @@ def read_staff_data():
         
         print(f"📖 직원 데이터 읽는 중: {excel_file}")
         
-        staff_df = pd.read_excel(excel_file, sheet_name='직원목록')
+        staff_df = pd.read_excel(excel_file, sheet_name='Sheet1')
         
         staff_list = []
         for _, row in staff_df.iterrows():
             staff = {
                 "id": int(row['직원번호']),
                 "name": str(row['이름']),
+                "age": int(row['나이']) if str(row['나이']) != 'nan' else 0,
+                "gender": str(row['성별']),
                 "phone": str(row['전화번호']),
                 "email": str(row['이메일']),
                 "position": str(row['직책']),
                 "department": str(row['부서']),
                 "hire_date": str(row['입사일']),
-                "hourly_rate": float(row['시급']),
-                "work_start_time": str(row['근무시간_시작']),
-                "work_end_time": str(row['근무시간_종료']),
                 "status": str(row['근무상태']),
-                "experience": str(row['경력']),
                 "certification": str(row['자격증']),
-                "area": str(row['담당구역']),
+                "notes": str(row['특이사항']),
                 "monthly_salary": int(row['월급여']) if str(row['월급여']) != 'nan' else 0
             }
             staff_list.append(staff)
@@ -159,57 +157,44 @@ def read_hr_data():
         
         print(f"📖 인사 데이터 읽는 중: {excel_file}")
         
-        # 급여 관리 데이터
-        payroll_df = pd.read_excel(excel_file, sheet_name='급여관리')
-        attendance_df = pd.read_excel(excel_file, sheet_name='근태관리')
+        # 인사 관리 데이터 (Sheet1에서 읽기)
+        hr_df = pd.read_excel(excel_file, sheet_name='Sheet1')
         
-        payroll_list = []
-        for _, row in payroll_df.iterrows():
-            payroll = {
-                "month": str(row['월']),
+        hr_list = []
+        for _, row in hr_df.iterrows():
+            hr_record = {
                 "employee_id": int(row['직원번호']),
                 "name": str(row['이름']),
-                "base_salary": int(row['기본급']),
-                "allowance": int(row['수당']),
-                "deduction": int(row['공제액']),
-                "net_pay": int(row['실지급액']),
-                "pay_date": str(row['지급일']),
-                "notes": str(row['비고'])
+                "department": str(row['부서']),
+                "used_vacation": int(row['연차사용']) if str(row['연차사용']) != 'nan' else 0,
+                "total_vacation": int(row['총연차']) if str(row['총연차']) != 'nan' else 0,
+                "remaining_vacation": int(row['잔여연차']) if str(row['잔여연차']) != 'nan' else 0,
+                "monthly_hours": int(row['월근무시간']) if str(row['월근무시간']) != 'nan' else 0,
+                "overtime_hours": int(row['초과근무']) if str(row['초과근무']) != 'nan' else 0,
+                "night_hours": int(row['야간근무']) if str(row['야간근무']) != 'nan' else 0,
+                "evaluation_score": float(row['평가점수']) if str(row['평가점수']) != 'nan' else 0,
+                "rewards_penalties": str(row['상벌내역']),
+                "training_completed": str(row['교육이수'])
             }
-            payroll_list.append(payroll)
-        
-        attendance_list = []
-        for _, row in attendance_df.iterrows():
-            attendance = {
-                "date": str(row['날짜']),
-                "employee_id": int(row['직원번호']),
-                "name": str(row['이름']),
-                "check_in": str(row['출근시간']),
-                "check_out": str(row['퇴근시간']),
-                "work_hours": str(row['근무시간']),
-                "status": str(row['상태']),
-                "notes": str(row['비고'])
-            }
-            attendance_list.append(attendance)
+            hr_list.append(hr_record)
         
         # 인사 통계
-        total_payroll = sum([p['base_salary'] for p in payroll_list])
-        avg_salary = total_payroll / len(payroll_list) if payroll_list else 0
-        total_deduction = sum([p['deduction'] for p in payroll_list])
-        total_net_pay = sum([p['net_pay'] for p in payroll_list])
+        total_employees = len(hr_list)
+        total_used_vacation = sum([h['used_vacation'] for h in hr_list])
+        total_overtime = sum([h['overtime_hours'] for h in hr_list])
+        avg_evaluation = sum([h['evaluation_score'] for h in hr_list]) / total_employees if total_employees > 0 else 0
         
         summary = {
-            "이번달총급여": total_payroll,
-            "평균급여": int(avg_salary),
-            "총공제액": total_deduction,
-            "실지급총액": total_net_pay,
-            "급여지급직원수": len(payroll_list),
-            "근태기록수": len(attendance_list)
+            "총직원수": total_employees,
+            "총사용연차": total_used_vacation,
+            "총초과근무": total_overtime,
+            "평균평가점수": round(avg_evaluation, 2),
+            "연차완전사용자": len([h for h in hr_list if h['remaining_vacation'] == 0]),
+            "교육완료자": len([h for h in hr_list if h['training_completed'] != ''])
         }
         
         hr_data = {
-            "payroll": payroll_list,
-            "attendance": attendance_list
+            "hr_records": hr_list
         }
         
         return hr_data, summary
@@ -227,23 +212,28 @@ def read_inventory_data():
         
         print(f"📖 재고 데이터 읽는 중: {excel_file}")
         
-        inventory_df = pd.read_excel(excel_file, sheet_name='재고목록')
+        inventory_df = pd.read_excel(excel_file, sheet_name='Sheet1')
         
         inventory_list = []
         for _, row in inventory_df.iterrows():
+            # 총액 계산 (단가 * 현재재고)
+            unit_price = int(row['단가']) if str(row['단가']) != 'nan' else 0
+            current_stock = int(row['현재재고']) if str(row['현재재고']) != 'nan' else 0
+            total_value = unit_price * current_stock
+            
             item = {
                 "id": int(row['품목번호']),
                 "item_name": str(row['품목명']),
                 "category": str(row['카테고리']),
-                "brand": str(row['브랜드']),
-                "current_stock": int(row['현재재고']),
-                "min_stock_level": int(row['최소재고']),
-                "max_stock_level": int(row['최대재고']),
-                "unit_price": int(row['단가']),
-                "total_value": int(row['총액']),
+                "current_stock": current_stock,
+                "min_stock_level": int(row['최소재고']) if str(row['최소재고']) != 'nan' else 0,
+                "max_stock_level": int(row['최대재고']) if str(row['최대재고']) != 'nan' else 0,
+                "unit_price": unit_price,
+                "total_value": total_value,
                 "supplier": str(row['공급업체']),
                 "location": str(row['위치']),
                 "received_date": str(row['입고일']),
+                "expiry_date": str(row['유통기한']),
                 "status": str(row['상태']),
                 "is_active": True
             }

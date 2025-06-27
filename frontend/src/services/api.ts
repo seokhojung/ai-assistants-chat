@@ -1,14 +1,14 @@
 import axios from 'axios';
 import { LoginRequest, LoginResponse, ChatRequest, ChatResponse } from '../types';
 
-// 동적으로 API URL 설정 (모바일/외부 접근 지원)
+// API URL 설정 - Render 배포 서버 사용
 const getApiBaseUrl = () => {
-  // 개발 환경에서는 현재 호스트를 사용
+  // 개발 환경에서는 로컬호스트 사용
   if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
     return 'http://localhost:8000/api/v1';
   }
-  // 외부 접근 시에는 현재 호스트의 8000 포트 사용
-  return `http://${window.location.hostname}:8000/api/v1`;
+  // 프로덕션 환경에서는 Render 배포 서버 사용
+  return 'https://ai-assistants-chat.onrender.com/api/v1';
 };
 
 // Axios 인스턴스 생성

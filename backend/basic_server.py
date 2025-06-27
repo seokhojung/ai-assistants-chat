@@ -1025,15 +1025,72 @@ class APIHandler(BaseHTTPRequestHandler):
         print(f"🌐 GET 요청: {path}")
         print(f"🔍 EXCEL_AVAILABLE: {EXCEL_AVAILABLE}")
         
-        # 루트 경로
-        if path == '/':
-            self._send_json_response({
-                "message": "🏋️ Gym AI 백엔드 서버 실행 중!",
-                "status": "success",
-                "version": "basic-http-1.0",
-                "excel_available": EXCEL_AVAILABLE
-            })
-            return
+        # 정적 파일 서빙 (프론트엔드)
+        if path == '/' or path == '/index.html':
+            try:
+                script_dir = os.path.dirname(os.path.abspath(__file__))
+                static_dir = os.path.join(script_dir, 'static')
+                index_path = os.path.join(static_dir, 'index.html')
+                
+                if os.path.exists(index_path):
+                    with open(index_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'text/html; charset=utf-8')
+                    self._set_cors_headers()
+                    self.end_headers()
+                    self.wfile.write(content.encode('utf-8'))
+                    return
+                else:
+                    # static 폴더가 없으면 기본 JSON 응답
+                    self._send_json_response({
+                        "message": "🏋️ Gym AI 백엔드 서버 실행 중!",
+                        "status": "success",
+                        "version": "basic-http-1.0",
+                        "excel_available": EXCEL_AVAILABLE,
+                        "note": "프론트엔드 파일이 없습니다. 'npm run build' 후 static 폴더에 복사하세요."
+                    })
+                    return
+            except Exception as e:
+                print(f"정적 파일 서빙 오류: {e}")
+                self._send_json_response({"error": str(e)}, 500)
+                return
+        
+        # CSS, JS 파일 서빙
+        if path.startswith('/assets/'):
+            try:
+                script_dir = os.path.dirname(os.path.abspath(__file__))
+                static_dir = os.path.join(script_dir, 'static')
+                file_path = os.path.join(static_dir, path[1:])  # '/' 제거
+                
+                if os.path.exists(file_path):
+                    with open(file_path, 'rb') as f:
+                        content = f.read()
+                    
+                    # 파일 확장자에 따른 Content-Type 설정
+                    if file_path.endswith('.css'):
+                        content_type = 'text/css'
+                    elif file_path.endswith('.js'):
+                        content_type = 'application/javascript'
+                    else:
+                        content_type = 'application/octet-stream'
+                    
+                    self.send_response(200)
+                    self.send_header('Content-Type', content_type)
+                    self._set_cors_headers()
+                    self.end_headers()
+                    self.wfile.write(content)
+                    return
+                else:
+                    self.send_response(404)
+                    self.end_headers()
+                    return
+            except Exception as e:
+                print(f"정적 파일 서빙 오류: {e}")
+                self.send_response(500)
+                self.end_headers()
+                return
         
         # 인증 관련
         if path == '/api/v1/auth/me':
@@ -1217,19 +1274,33 @@ class APIHandler(BaseHTTPRequestHandler):
             return
         elif path.startswith('/api/v1/files/download/'):
             file_path = path.replace('/api/v1/files/download/', '')
-            # URL 디코딩 추가
-            from urllib.parse import unquote
-            file_path = unquote(file_path)
             self._handle_file_download(file_path)
             return
         elif path.startswith('/api/v1/files/preview/'):
             file_path = path.replace('/api/v1/files/preview/', '')
-            # URL 디코딩 추가
-            from urllib.parse import unquote
-            file_path = unquote(file_path)
             self._handle_file_preview(file_path)
             return
-
+        
+        # API 요청이 아닌 경우 React 라우터를 위해 index.html 반환 (SPA 라우팅)
+        if not path.startswith('/api/'):
+            try:
+                script_dir = os.path.dirname(os.path.abspath(__file__))
+                static_dir = os.path.join(script_dir, 'static')
+                index_path = os.path.join(static_dir, 'index.html')
+                
+                if os.path.exists(index_path):
+                    with open(index_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'text/html; charset=utf-8')
+                    self._set_cors_headers()
+                    self.end_headers()
+                    self.wfile.write(content.encode('utf-8'))
+                    return
+            except Exception as e:
+                print(f"SPA 라우팅 오류: {e}")
+        
         # 대시보드 API
         if path == '/api/v1/dashboard':
             print("📊 대시보드 데이터 요청 처리 중...")
@@ -1281,11 +1352,12 @@ class APIHandler(BaseHTTPRequestHandler):
             })
             return
         
-        # 404 에러
-        self._send_json_response({
-            "error": "경로를 찾을 수 없습니다",
-            "path": path
-        }, 404)
+        # 그 외의 경우 404 처리
+        self.send_response(404)
+        self.send_header('Content-Type', 'application/json')
+        self._set_cors_headers()
+        self.end_headers()
+        self.wfile.write(json.dumps({"error": "Not Found", "path": path}).encode('utf-8'))
     
     def do_POST(self):
         """POST 요청 처리"""

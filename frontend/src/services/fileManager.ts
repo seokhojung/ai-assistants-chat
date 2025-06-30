@@ -42,7 +42,11 @@ export const fileManagerApi = {
   async downloadFile(filePath: string): Promise<Blob> {
     // 파일 경로에서 category/filename 형태로 변환
     const encodedPath = encodeURIComponent(filePath);
-    const response = await fetch(`http://localhost:8000/api/v1/files/download/${encodedPath}`, {
+    // API 베이스 URL 가져오기
+    const baseUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+      ? 'http://localhost:8000/api/v1' 
+      : 'https://ai-assistants-chat.onrender.com/api/v1';
+    const response = await fetch(`${baseUrl}/files/download/${encodedPath}`, {
       method: 'GET',
     });
     

@@ -26,7 +26,6 @@ const FileManager: React.FC = () => {
   const [hasChanges, setHasChanges] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editMode, setEditMode] = useState(false);
-  const [tempInputValue, setTempInputValue] = useState('');
   const [originalRowCount, setOriginalRowCount] = useState<Record<string, number>>({});
 
   // 🔄 useCallback으로 함수 최적화
@@ -144,7 +143,6 @@ const FileManager: React.FC = () => {
     setEditedData({});
     setHasChanges(false);
     setEditMode(false);
-    setTempInputValue('');
     setOriginalRowCount({});
   }, []);
 
@@ -274,8 +272,6 @@ const FileManager: React.FC = () => {
       return newData;
     });
   }, [editedData, preview]);
-
-
 
   const handleSaveChanges = useCallback(async () => {
     if (!selectedFile || !hasChanges) return;
@@ -551,22 +547,22 @@ const FileManager: React.FC = () => {
                       {editingCell?.sheetName === sheetName && editingCell?.rowIndex === 0 && editingCell?.colIndex === index ? (
                         <input
                           type="text"
-                          value={tempInputValue}
-                          onChange={(e) => setTempInputValue(e.target.value)}
+                          defaultValue={String(header || '')}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') {
-                              handleCellEdit(sheetName, 0, index, tempInputValue);
+                              e.preventDefault();
+                              const target = e.target as HTMLInputElement;
+                              handleCellEdit(sheetName, 0, index, target.value);
                               setEditingCell(null);
-                              setTempInputValue('');
                             } else if (e.key === 'Escape') {
+                              e.preventDefault();
                               setEditingCell(null);
-                              setTempInputValue('');
                             }
                           }}
-                          onBlur={() => {
-                            handleCellEdit(sheetName, 0, index, tempInputValue);
+                          onBlur={(e) => {
+                            const target = e.target as HTMLInputElement;
+                            handleCellEdit(sheetName, 0, index, target.value);
                             setEditingCell(null);
-                            setTempInputValue('');
                           }}
                           className="w-24 px-2 py-1 text-sm border border-blue-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
                           autoFocus
@@ -576,7 +572,6 @@ const FileManager: React.FC = () => {
                           onClick={() => {
                             if (editMode) {
                               setEditingCell({ sheetName, rowIndex: 0, colIndex: index });
-                              setTempInputValue(String(header));
                             }
                           }}
                           className={editMode ? "cursor-pointer hover:bg-gray-100 px-1 rounded" : ""}
@@ -621,22 +616,22 @@ const FileManager: React.FC = () => {
                         {editingCell?.sheetName === sheetName && editingCell?.rowIndex === actualRowIndex && editingCell?.colIndex === cellIndex ? (
                           <input
                             type="text"
-                            value={tempInputValue}
-                            onChange={(e) => setTempInputValue(e.target.value)}
+                            defaultValue={String(cell || '')}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') {
-                                handleCellEdit(sheetName, actualRowIndex, cellIndex, tempInputValue);
+                                e.preventDefault();
+                                const target = e.target as HTMLInputElement;
+                                handleCellEdit(sheetName, actualRowIndex, cellIndex, target.value);
                                 setEditingCell(null);
-                                setTempInputValue('');
                               } else if (e.key === 'Escape') {
+                                e.preventDefault();
                                 setEditingCell(null);
-                                setTempInputValue('');
                               }
                             }}
-                            onBlur={() => {
-                              handleCellEdit(sheetName, actualRowIndex, cellIndex, tempInputValue);
+                            onBlur={(e) => {
+                              const target = e.target as HTMLInputElement;
+                              handleCellEdit(sheetName, actualRowIndex, cellIndex, target.value);
                               setEditingCell(null);
-                              setTempInputValue('');
                             }}
                             className="w-32 px-2 py-1 text-sm border border-blue-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
                             autoFocus
@@ -646,7 +641,6 @@ const FileManager: React.FC = () => {
                             onClick={() => {
                               if (editMode) {
                                 setEditingCell({ sheetName, rowIndex: actualRowIndex, colIndex: cellIndex });
-                                setTempInputValue(String(cell || ''));
                               }
                             }}
                             className={editMode ? "cursor-pointer hover:bg-gray-100 px-1 rounded min-h-[20px] block" : ""}

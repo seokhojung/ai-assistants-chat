@@ -1,804 +1,954 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import type { FileInfo, FilePreview } from '../services/fileManager';
-import { fileManagerApi } from '../services/fileManager';
+import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
+import { Card, CardHeader, CardBody, Button, Badge, Modal, ModalHeader, ModalBody } from '../components/ui';
+import api from '../services/api';
 
-// 📊 타입 정의 개선
-interface SheetData {
-  data: (string | number | null)[][];
-  total_rows: number;
-  total_cols: number;
+interface FileData {
+  id: string;
+  name: string;
+  type: string;
+  icon: string;
+  size: string;
+  lastModified: string;
+  records: number;
+  agent: string;
+  status: string;
+  description: string;
 }
 
-interface OptimizedFilePreview extends Omit<FilePreview, 'sheets'> {
-  sheets: Record<string, SheetData>;
+interface ExcelData {
+  headers: string[];
+  rows: (string | number)[][];
+  sheets?: string[];
+  currentSheet?: string;
 }
 
 const FileManager: React.FC = () => {
-  const [files, setFiles] = useState<FileInfo[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [selectedFile, setSelectedFile] = useState<FileInfo | null>(null);
-  const [preview, setPreview] = useState<OptimizedFilePreview | null>(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
-  const [activeSheetName, setActiveSheetName] = useState<string>('');
-  const [editingCell, setEditingCell] = useState<{sheetName: string, rowIndex: number, colIndex: number} | null>(null);
-  const [editedData, setEditedData] = useState<Record<string, SheetData>>({});
+  const [files, setFiles] = useState<FileData[]>([]);
+  const [selectedFile, setSelectedFile] = useState<FileData | null>(null);
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const [excelData, setExcelData] = useState<ExcelData | null>(null);
+  const [editingCell, setEditingCell] = useState<{row: number, col: number} | null>(null);
+  const [editingHeader, setEditingHeader] = useState<number | null>(null);
+  const [editValue, setEditValue] = useState('');
   const [hasChanges, setHasChanges] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [editMode, setEditMode] = useState(false);
-  const [originalRowCount, setOriginalRowCount] = useState<Record<string, number>>({});
+  const [loading, setLoading] = useState(false);
+  const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
+  const [selectedSheet, setSelectedSheet] = useState<string>('');
+  
+  // Undo/Redo 히스토리 관리
+  const [history, setHistory] = useState<ExcelData[]>([]);
+  const [currentHistoryIndex, setCurrentHistoryIndex] = useState(-1);
 
-  // 🔄 useCallback으로 함수 최적화
-  const loadFiles = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      
-      const response = await fetch('http://localhost:8000/api/v1/files');
-      if (!response.ok) {
-        throw new Error('파일 목록을 불러올 수 없습니다');
+  // 키보드 단축키 처리
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        if (e.key === 'z' && !e.shiftKey) {
+          e.preventDefault();
+          undo();
+        } else if ((e.key === 'y') || (e.key === 'z' && e.shiftKey)) {
+          e.preventDefault();
+          redo();
+        }
       }
+    };
+
+    if (showPreviewModal) {
+      document.addEventListener('keydown', handleKeyDown);
+    }
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [showPreviewModal, currentHistoryIndex, history.length]);
+
+  // 파일 목록 데이터 (실제로는 API에서 가져와야 함)
+  useEffect(() => {
+    const excelFiles = [
+      {
+        id: 'members',
+        name: '회원관리_20250624.xlsx',
+        type: '회원관리',
+        icon: '👥',
+        size: '2.3 MB',
+        lastModified: '2024-06-24 14:30',
+        records: 5,
+        agent: 'member',
+        status: 'active',
+        description: '회원 정보, 멤버십, 결제내역 관리'
+      },
+      {
+        id: 'staff',
+        name: '직원관리_20250624.xlsx',
+        type: '직원관리',
+        icon: '👷',
+        size: '1.8 MB',
+        lastModified: '2024-06-24 09:15',
+        records: 3,
+        agent: 'staff',
+        status: 'active',
+        description: '직원 정보, 스케줄, 근태 관리'
+      },
+      {
+        id: 'hr',
+        name: '인사관리_20250624.xlsx',
+        type: '인사관리', 
+        icon: '💼',
+        size: '3.1 MB',
+        lastModified: '2024-06-24 11:45',
+        records: 89,
+        agent: 'hr',
+        status: 'active',
+        description: '급여, 휴가, 교육, 평가 관리'
+      },
+      {
+        id: 'inventory',
+        name: '재고관리_20250624.xlsx',
+        type: '재고관리',
+        icon: '📦',
+        size: '1.2 MB',
+        lastModified: '2024-06-24 16:20',
+        records: 356,
+        agent: 'inventory',
+        status: 'active',
+        description: '장비, 보충제, 용품 재고 관리'
+      }
+    ];
+    setFiles(excelFiles);
+  }, []);
+
+  // 파일 미리보기 데이터 로드
+  const loadFilePreview = async (file: FileData) => {
+    setLoading(true);
+    try {
+      const response = await api.get(`/files/preview?path=${encodeURIComponent(file.name)}`);
       
-      const data = await response.json();
-      setFiles(data.files || []);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다');
+      if (response.data.data) {
+        // 백엔드에서 받은 데이터를 테이블 형태로 변환
+        const headers = response.data.data.length > 0 ? Object.keys(response.data.data[0]) : [];
+        const rows = response.data.data.map((item: any) => headers.map(header => item[header]));
+        
+        const newExcelData = {
+          headers,
+          rows,
+          sheets: ['데이터'], // 실제 API에서는 시트 정보도 받아와야 함
+          currentSheet: '데이터'
+        };
+        setExcelData(newExcelData);
+        setSelectedSheet('데이터');
+        
+        // 초기 데이터를 히스토리에 저장
+        setHistory([JSON.parse(JSON.stringify(newExcelData))]);
+        setCurrentHistoryIndex(0);
+      } else {
+        // 샘플 데이터 (백엔드 연결 실패 시)
+        const sampleData = getSampleData(file.type, selectedSheet);
+        setExcelData(sampleData);
+        setSelectedSheet(sampleData.currentSheet || '');
+        setHistory([JSON.parse(JSON.stringify(sampleData))]);
+        setCurrentHistoryIndex(0);
+      }
+    } catch (error) {
+      console.error('파일 미리보기 로드 실패:', error);
+      // 샘플 데이터로 폴백
+      const sampleData = getSampleData(file.type, selectedSheet);
+      setExcelData(sampleData);
+      setSelectedSheet(sampleData.currentSheet || '');
+      setHistory([JSON.parse(JSON.stringify(sampleData))]);
+      setCurrentHistoryIndex(0);
     } finally {
       setLoading(false);
     }
-  }, []);
-
-  useEffect(() => {
-    loadFiles();
-  }, [loadFiles]);
-
-  const handlePreview = useCallback(async (file: FileInfo) => {
-    try {
-      setPreviewLoading(true);
-      setSelectedFile(file);
-      setError(null);
-      
-      const previewData = await fileManagerApi.previewFile(file.path);
-      setPreview(previewData as OptimizedFilePreview);
-      
-      // 원본 행 수 기록
-      const originalCounts: Record<string, number> = {};
-      Object.entries(previewData.sheets).forEach(([sheetName, sheet]) => {
-        originalCounts[sheetName] = sheet.total_rows;
-      });
-      setOriginalRowCount(originalCounts);
-      
-      // 첫 번째 시트를 기본 활성 시트로 설정
-      if (previewData.sheet_names.length > 0) {
-        setActiveSheetName(previewData.sheet_names[0]);
-      }
-    } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : '파일 미리보기에 실패했습니다.';
-      alert(errorMessage);
-      console.error('미리보기 오류:', err);
-    } finally {
-      setPreviewLoading(false);
-    }
-  }, []);
-
-  const handleDownload = useCallback(async (file: FileInfo) => {
-    try {
-      const blob = await fileManagerApi.downloadFile(file.path);
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = file.name;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-    } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : '파일 다운로드에 실패했습니다.';
-      alert(errorMessage);
-      console.error('다운로드 오류:', err);
-    }
-  }, []);
-
-  // 🔧 유틸리티 함수들 최적화
-  const getCategoryInfo = useCallback((category: string) => {
-    const categoryMap: Record<string, { name: string; icon: string; color: string; bgColor: string }> = {
-      members: { 
-        name: '회원관리', 
-        icon: '👥', 
-        color: 'text-blue-700', 
-        bgColor: 'bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200'
-      },
-      staff: { 
-        name: '직원관리', 
-        icon: '👨‍💼', 
-        color: 'text-green-700', 
-        bgColor: 'bg-gradient-to-br from-green-50 to-green-100 border-green-200'
-      },
-      hr: { 
-        name: '인사관리', 
-        icon: '📋', 
-        color: 'text-purple-700', 
-        bgColor: 'bg-gradient-to-br from-purple-50 to-purple-100 border-purple-200'
-      },
-      inventory: { 
-        name: '재고관리', 
-        icon: '📦', 
-        color: 'text-orange-700', 
-        bgColor: 'bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200'
-      }
-    };
-    return categoryMap[category] || { 
-      name: category, 
-      icon: '📄', 
-      color: 'text-gray-700', 
-      bgColor: 'bg-gradient-to-br from-gray-50 to-gray-100 border-gray-200'
-    };
-  }, []);
-
-  const closePreview = useCallback(() => {
-    setSelectedFile(null);
-    setPreview(null);
-    setActiveSheetName('');
-    setEditingCell(null);
-    setEditedData({});
-    setHasChanges(false);
-    setEditMode(false);
-    setOriginalRowCount({});
-  }, []);
-
-  const handleAddRow = useCallback((sheetName: string) => {
-    setEditedData(prev => {
-      const currentSheet = editedData[sheetName] || preview?.sheets[sheetName];
-      if (!currentSheet) return prev;
-
-      const headers = currentSheet.data[0] || [];
-      const newRow = headers.map(() => ''); // 빈 값으로 새 행 생성
-
-      const updatedSheet = {
-        ...currentSheet,
-        data: [...currentSheet.data, newRow],
-        total_rows: currentSheet.total_rows + 1
-      };
-
-      const newData = {
-        ...prev,
-        [sheetName]: updatedSheet
-      };
-
-      setHasChanges(true);
-      return newData;
-    });
-  }, [editedData, preview]);
-
-  const handleAddColumn = useCallback((sheetName: string) => {
-    setEditedData(prev => {
-      const currentSheet = editedData[sheetName] || preview?.sheets[sheetName];
-      if (!currentSheet) return prev;
-
-      const updatedData = currentSheet.data.map((row, index) => {
-        if (index === 0) {
-          // 헤더 행에 새 컬럼 추가
-          return [...row, `새 컬럼 ${row.length + 1}`];
-        } else {
-          // 데이터 행에 빈 값 추가
-          return [...row, ''];
-        }
-      });
-
-      const updatedSheet = {
-        ...currentSheet,
-        data: updatedData,
-        total_cols: currentSheet.total_cols + 1
-      };
-
-      const newData = {
-        ...prev,
-        [sheetName]: updatedSheet
-      };
-
-      setHasChanges(true);
-      return newData;
-    });
-  }, [editedData, preview]);
-
-  const handleDeleteRow = useCallback((sheetName: string, rowIndex: number) => {
-    setEditedData(prev => {
-      const currentSheet = editedData[sheetName] || preview?.sheets[sheetName];
-      if (!currentSheet || currentSheet.data.length <= 2) return prev; // 헤더 + 최소 1개 데이터 행 유지
-
-      const updatedData = currentSheet.data.filter((_, index) => index !== rowIndex);
-
-      const updatedSheet = {
-        ...currentSheet,
-        data: updatedData,
-        total_rows: currentSheet.total_rows - 1
-      };
-
-      const newData = {
-        ...prev,
-        [sheetName]: updatedSheet
-      };
-
-      setHasChanges(true);
-      return newData;
-    });
-  }, [editedData, preview]);
-
-  const handleDeleteColumn = useCallback((sheetName: string, colIndex: number) => {
-    setEditedData(prev => {
-      const currentSheet = editedData[sheetName] || preview?.sheets[sheetName];
-      if (!currentSheet || (currentSheet.data[0]?.length || 0) <= 1) return prev; // 최소 1개 컬럼 유지
-
-      const updatedData = currentSheet.data.map(row => 
-        row.filter((_, index) => index !== colIndex)
-      );
-
-      const updatedSheet = {
-        ...currentSheet,
-        data: updatedData,
-        total_cols: currentSheet.total_cols - 1
-      };
-
-      const newData = {
-        ...prev,
-        [sheetName]: updatedSheet
-      };
-
-      setHasChanges(true);
-      return newData;
-    });
-  }, [editedData, preview]);
-
-  const handleCellEdit = useCallback((sheetName: string, rowIndex: number, colIndex: number, newValue: string) => {
-    setEditedData(prev => {
-      const currentSheet = editedData[sheetName] || preview?.sheets[sheetName];
-      if (!currentSheet) return prev;
-
-      const updatedSheet = {
-        ...currentSheet,
-        data: currentSheet.data.map((row, rIdx) => 
-          rIdx === rowIndex 
-            ? row.map((cell, cIdx) => cIdx === colIndex ? newValue : cell)
-            : row
-        )
-      };
-
-      const newData = {
-        ...prev,
-        [sheetName]: updatedSheet
-      };
-
-      setHasChanges(true);
-      return newData;
-    });
-  }, [editedData, preview]);
-
-  const handleSaveChanges = useCallback(async () => {
-    if (!selectedFile || !hasChanges) return;
-
-    setSaving(true);
-    try {
-      const dataToSave = Object.keys(editedData).length > 0 ? editedData : preview?.sheets || {};
-
-      const response = await fetch(`/api/v1/files/save/${encodeURIComponent(selectedFile.path)}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          sheets: dataToSave
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error('저장에 실패했습니다');
-      }
-
-      await response.json();
-      alert('✅ 파일이 성공적으로 저장되었습니다!');
-      setHasChanges(false);  
-      setEditedData({});
-      
-      setPreview(prev => prev ? {
-        ...prev,
-        sheets: dataToSave
-      } : null);
-      
-      const newOriginalCounts: Record<string, number> = {};
-      Object.entries(dataToSave).forEach(([sheetName, sheet]) => {
-        newOriginalCounts[sheetName] = sheet.total_rows;
-      });
-      setOriginalRowCount(newOriginalCounts);
-      
-      loadFiles();
-      
-    } catch (err) {
-      console.error('Save error:', err);
-      alert('❌ 저장 중 오류가 발생했습니다');
-    } finally {
-      setSaving(false);
-    }
-  }, [selectedFile, hasChanges, editedData, preview, loadFiles]);
-
-  // 🎯 렌더링 컴포넌트들
-  const LoadingSpinner = () => (
-    <div className="flex flex-col items-center justify-center h-64 space-y-4">
-      <div className="relative">
-        <div className="w-16 h-16 border-4 border-blue-200 rounded-full animate-spin"></div>
-        <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin absolute top-0 left-0"></div>
-      </div>
-      <div className="text-center">
-        <p className="text-lg font-medium text-gray-700">로딩 중...</p>
-        <p className="text-sm text-gray-500 mt-1">파일을 불러오고 있습니다</p>
-      </div>
-    </div>
-  );
-
-  const ErrorDisplay = ({ message, onRetry }: { message: string; onRetry: () => void }) => (
-    <div className="text-center py-16">
-      <div className="w-24 h-24 mx-auto mb-6 bg-red-100 rounded-full flex items-center justify-center">
-        <span className="text-4xl">❌</span>
-      </div>
-      <h3 className="text-xl font-semibold text-gray-900 mb-2">문제가 발생했습니다</h3>
-      <p className="text-gray-600 mb-6 max-w-md mx-auto">{message}</p>
-      <button
-        onClick={onRetry}
-        className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white font-medium rounded-xl hover:from-blue-700 hover:to-blue-800 transform hover:scale-105 transition-all duration-200 shadow-lg hover:shadow-xl"
-      >
-        <span className="mr-2">🔄</span>
-        다시 시도
-      </button>
-    </div>
-  );
-
-  const EmptyState = () => (
-    <div className="text-center py-20">
-      <div className="w-32 h-32 mx-auto mb-8 bg-gradient-to-br from-gray-100 to-gray-200 rounded-full flex items-center justify-center">
-        <span className="text-6xl">📂</span>
-      </div>
-      <h3 className="text-2xl font-semibold text-gray-900 mb-3">파일이 없습니다</h3>
-      <p className="text-gray-600 max-w-md mx-auto">
-        아직 업로드된 Excel 파일이 없습니다.<br />
-        파일을 업로드하면 여기에 표시됩니다.
-      </p>
-    </div>
-  );
-
-  // 🎨 파일 카드 컴포넌트 - 심플하고 단정한 디자인
-  const FileCard: React.FC<{ file: FileInfo; onPreview: (file: FileInfo) => void; onDownload: (file: FileInfo) => void }> = ({ 
-    file, 
-    onPreview, 
-    onDownload 
-  }) => {
-    const getCategoryIcon = (category: string) => {
-      switch (category) {
-        case 'members': return '👥';
-        case 'staff': return '👨‍💼';
-        case 'hr': return '📋';
-        case 'inventory': return '📦';
-        default: return '📄';
-      }
-    };
-
-    const getCategoryColor = (category: string) => {
-      switch (category) {
-        case 'members': return 'from-blue-500 to-blue-600';
-        case 'staff': return 'from-green-500 to-green-600';
-        case 'hr': return 'from-purple-500 to-purple-600';
-        case 'inventory': return 'from-orange-500 to-orange-600';
-        default: return 'from-gray-500 to-gray-600';
-      }
-    };
-
-    return (
-      <div className="bg-white rounded-lg border border-gray-200 hover:border-gray-300 hover:shadow-md transition-all duration-200 p-4">
-        <div className="flex items-start justify-between">
-          <div className="flex items-start space-x-3 flex-1 min-w-0">
-            <div className={`w-10 h-10 bg-gradient-to-br ${getCategoryColor(file.category)} rounded-lg flex items-center justify-center text-white text-lg flex-shrink-0`}>
-              {getCategoryIcon(file.category)}
-            </div>
-            
-            <div className="flex-1 min-w-0">
-              <h3 className="text-lg font-semibold text-gray-900 truncate mb-1">
-                {file.name}
-              </h3>
-              <p className="text-sm text-gray-500">
-                {new Date(file.modified).toLocaleDateString('ko-KR', {
-                  year: '2-digit',
-                  month: '2-digit', 
-                  day: '2-digit'
-                })}
-              </p>
-            </div>
-          </div>
-          
-          <div className="flex space-x-2 ml-4 flex-shrink-0">
-            <button
-              onClick={() => onPreview(file)}
-              className="group relative px-4 py-2 bg-gradient-to-r from-blue-500 to-blue-600 text-white text-sm font-medium rounded-lg shadow-md hover:shadow-lg hover:from-blue-600 hover:to-blue-700 transform hover:scale-105 transition-all duration-200 flex items-center space-x-1"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-              </svg>
-              <span>미리보기</span>
-            </button>
-            <button
-              onClick={() => onDownload(file)}
-              className="group relative px-4 py-2 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white text-sm font-medium rounded-lg shadow-md hover:shadow-lg hover:from-emerald-600 hover:to-emerald-700 transform hover:scale-105 transition-all duration-200 flex items-center space-x-1"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              <span>다운로드</span>
-            </button>
-          </div>
-        </div>
-      </div>
-    );
   };
 
-  // 📋 테이블 데이터 렌더링 컴포넌트 - 편집 가능
-  const TablePreview = ({ sheetData, sheetName }: { sheetData: SheetData; sheetName: string }) => {
-    const currentData = editedData[sheetName] || sheetData;
-    
-    if (!currentData || !currentData.data || currentData.data.length === 0) {
-      return (
-        <div className="text-center py-12">
-          <div className="text-6xl mb-4">📄</div>
-          <p className="text-gray-500">데이터가 없습니다.</p>
-        </div>
-      );
+  // 샘플 데이터 생성 (실제 Excel 구조 반영)
+  const getSampleData = (fileType: string, sheetName?: string): ExcelData => {
+    switch (fileType) {
+      case '회원관리':
+        const memberSheets = ['회원목록', '통계'];
+        const currentMemberSheet = sheetName || memberSheets[0];
+        
+        if (currentMemberSheet === '회원목록') {
+          return {
+            headers: ['회원번호', '이름', '나이', '성별', '전화번호', '이메일', '주소', '직업', '멤버십타입', '월회비', '가입일', '만료일', '결제상태', '비상연락처', '특이사항'],
+            rows: [
+              [1, '김철수', 28, '남', '010-1234-5678', 'kim@email.com', '서울시 강남구', '직장인', '프리미엄', 120000, '2024-01-15', '2025-01-15', '완료', '010-1234-9999', '없음'],
+              [2, '이영희', 25, '여', '010-2345-6789', 'lee@email.com', '서울시 서초구', '학생', '일반', 80000, '2024-02-01', '2025-02-01', '완료', '010-2345-9999', '없음'],
+              [3, '박민수', 32, '남', '010-3456-7890', 'park@email.com', '서울시 송파구', '자영업', 'VIP', 200000, '2024-03-10', '2025-03-10', '완료', '010-3456-9999', '개인 트레이너 희망'],
+              [4, '최지은', 29, '여', '010-4567-8901', 'choi@email.com', '서울시 관악구', '회사원', '프리미엄', 120000, '2024-04-05', '2025-04-05', '지연', '010-4567-9999', '무릎 수술 이력'],
+              [5, '정대호', 35, '남', '010-5678-9012', 'jung@email.com', '서울시 마포구', '의사', 'VIP', 200000, '2024-05-20', '2025-05-20', '완료', '010-5678-9999', '새벽 운동 선호']
+            ],
+            sheets: memberSheets,
+            currentSheet: currentMemberSheet
+          };
+        } else {
+          return {
+            headers: ['항목', '값'],
+            rows: [
+              ['총회원수', 5],
+              ['활성회원', 5],
+              ['프리미엄', 2],
+              ['일반', 1],
+              ['VIP', 2],
+              ['남성', 3],
+              ['여성', 2],
+              ['총월매출', 720000]
+            ],
+            sheets: memberSheets,
+            currentSheet: currentMemberSheet
+          };
+        }
+        
+      case '직원관리':
+        return {
+          headers: ['직원번호', '이름', '나이', '성별', '전화번호', '이메일', '직책', '부서', '입사일', '근무상태', '자격증', '특이사항', '월급여'],
+          rows: [
+            [1, '홍길동', 30, '남', '010-1111-2222', 'hong@gym.com', '트레이너', '헬스', '2023-01-10', '활성', '생활스포츠지도사', '없음', 3500000],
+            [2, '김영수', 27, '남', '010-3333-4444', 'kim@gym.com', '수영강사', '수영', '2023-03-15', '활성', '수영지도자', '없음', 3200000],
+            [3, '박지훈', 35, '남', '010-5555-6666', 'park@gym.com', '매니저', '관리', '2022-06-01', '활성', '경영학사', '없음', 4500000],
+            [4, '이미영', 28, '여', '010-7777-8888', 'lee@gym.com', '트레이너', '헬스', '2023-09-20', '활성', '생활스포츠지도사', '없음', 3500000],
+            [5, '최순이', 45, '여', '010-9999-0000', 'choi@gym.com', '청소원', '시설', '2024-01-05', '활성', '없음', '없음', 2200000]
+          ],
+          sheets: ['직원목록'],
+          currentSheet: '직원목록'
+        };
+        
+      case '인사관리':
+        return {
+          headers: ['직원번호', '이름', '부서', '연차사용', '총연차', '잔여연차', '월근무시간', '초과근무', '야간근무', '평가점수', '상벌내역', '교육이수'],
+          rows: [
+            [1, '홍길동', '헬스', 5, 15, 10, 160, 20, 0, 4.5, '우수직원상', 'CPR 교육 완료'],
+            [2, '김영수', '수영', 3, 15, 12, 160, 15, 8, 4.2, '없음', '안전교육 완료'],
+            [3, '박지훈', '관리', 10, 15, 5, 168, 30, 0, 4.8, '모범직원상', '관리자 교육 완료'],
+            [4, '이미영', '헬스', 7, 15, 8, 160, 18, 0, 4.3, '없음', 'CPR 교육 완료'],
+            [5, '최순이', '시설', 2, 15, 13, 160, 5, 16, 4.0, '없음', '안전교육 완료']
+          ],
+          sheets: ['인사현황'],
+          currentSheet: '인사현황'
+        };
+        
+      case '재고관리':
+        return {
+          headers: ['품목코드', '품목명', '카테고리', '현재재고', '최소재고', '단위', '단가', '총가치', '공급업체', '최종입고일', '상태'],
+          rows: [
+            ['EQ001', '덤벨 20kg', '운동기구', 15, 10, '개', 150000, 2250000, '피트니스월드', '2024-05-15', '정상'],
+            ['SP001', '프로틴 파우더', '보충제', 25, 20, '통', 45000, 1125000, '뉴트리온', '2024-06-10', '정상'],
+            ['CL001', '수건', '청소용품', 80, 50, '개', 5000, 400000, '클린텍스', '2024-06-20', '정상'],
+            ['EQ002', '러닝머신 벨트', '운동기구', 3, 5, '개', 200000, 600000, '러닝텍', '2024-04-20', '부족'],
+            ['SP002', 'BCAA', '보충제', 12, 15, '병', 35000, 420000, '뉴트리온', '2024-05-25', '부족']
+          ],
+          sheets: ['재고현황'],
+          currentSheet: '재고현황'
+        };
+        
+      default:
+        return {
+          headers: ['항목', '값'],
+          rows: [
+            ['데이터1', '100'],
+            ['데이터2', '200']
+          ],
+          sheets: ['기본'],
+          currentSheet: '기본'
+        };
     }
+  };
 
-    const headers = currentData.data[0] || [];
-    const rows = currentData.data.slice(1);
+  // 파일 편집 모달 열기
+  const handleEditFile = async (file: FileData) => {
+    setSelectedFile(file);
+    setShowPreviewModal(true);
+    setHasChanges(false);
+    await loadFilePreview(file);
+  };
 
-    return (
-      <div>
-        <div className="mb-4 flex justify-between items-center flex-wrap gap-2">
-          <div className="text-sm text-gray-600">
-            📊 총 {currentData.total_rows}개 행, {currentData.total_cols}개 열
-            {hasChanges && <span className="ml-2 text-orange-600 font-medium">● 변경사항 있음</span>}
+  // 히스토리에 현재 상태 저장
+  const saveToHistory = (data: ExcelData) => {
+    const newHistory = history.slice(0, currentHistoryIndex + 1);
+    newHistory.push(JSON.parse(JSON.stringify(data))); // 깊은 복사
+    
+    // 히스토리 크기 제한 (최대 50개)
+    if (newHistory.length > 50) {
+      newHistory.shift();
+    } else {
+      setCurrentHistoryIndex(prev => prev + 1);
+    }
+    
+    setHistory(newHistory);
+  };
+
+  // Undo 기능
+  const undo = () => {
+    if (currentHistoryIndex > 0) {
+      setCurrentHistoryIndex(prev => prev - 1);
+      setExcelData(history[currentHistoryIndex - 1]);
+      setHasChanges(true);
+    }
+  };
+
+  // Redo 기능
+  const redo = () => {
+    if (currentHistoryIndex < history.length - 1) {
+      setCurrentHistoryIndex(prev => prev + 1);
+      setExcelData(history[currentHistoryIndex + 1]);
+      setHasChanges(true);
+    }
+  };
+
+  // 셀 편집 시작
+  const startCellEdit = (rowIndex: number, colIndex: number, value: string | number) => {
+    setEditingCell({ row: rowIndex, col: colIndex });
+    setEditValue(String(value));
+  };
+
+  // 헤더 편집 시작
+  const startHeaderEdit = (headerIndex: number, value: string) => {
+    setEditingHeader(headerIndex);
+    setEditValue(value);
+  };
+
+  // 셀 편집 완료
+  const finishCellEdit = () => {
+    if (editingCell && excelData) {
+      // 변경 전 상태를 히스토리에 저장
+      saveToHistory(excelData);
+      
+      const newRows = [...excelData.rows];
+      newRows[editingCell.row][editingCell.col] = editValue;
+      const newExcelData = { ...excelData, rows: newRows };
+      setExcelData(newExcelData);
+      setHasChanges(true);
+    }
+    setEditingCell(null);
+    setEditValue('');
+  };
+
+  // 헤더 편집 완료
+  const finishHeaderEdit = () => {
+    if (editingHeader !== null && excelData) {
+      // 변경 전 상태를 히스토리에 저장
+      saveToHistory(excelData);
+      
+      const newHeaders = [...excelData.headers];
+      newHeaders[editingHeader] = editValue;
+      const newExcelData = { ...excelData, headers: newHeaders };
+      setExcelData(newExcelData);
+      setHasChanges(true);
+    }
+    setEditingHeader(null);
+    setEditValue('');
+  };
+
+  // 편집 취소
+  const cancelEdit = () => {
+    setEditingCell(null);
+    setEditingHeader(null);
+    setEditValue('');
+  };
+
+  // 변경사항 저장
+  const saveChanges = async () => {
+    if (!selectedFile || !excelData) return;
+
+    setLoading(true);
+    try {
+      // 백엔드가 기대하는 형식으로 데이터 변환
+      const currentSheetName = selectedSheet || excelData.currentSheet || '시트1';
+      
+      // 헤더와 데이터를 하나의 배열로 합치기
+      const sheetData = [
+        excelData.headers,  // 첫 번째 행은 헤더
+        ...excelData.rows   // 나머지 행은 데이터
+      ];
+      
+      const dataToSave = {
+        sheets: {
+          [currentSheetName]: {
+            data: sheetData
+          }
+        }
+      };
+
+      console.log('📤 저장할 데이터:', dataToSave);
+
+      // API 경로를 백엔드 형식에 맞게 수정 
+      const encodedFileName = encodeURIComponent(selectedFile.name);
+      
+      // baseURL이 /api/v1이므로 /files/save 로 호출하면 /api/v1/files/save가 됨
+      const response = await api.post(`/files/save/${encodedFileName}`, dataToSave);
+
+      console.log('✅ 저장 응답:', response.data);
+      
+      setHasChanges(false);
+      alert('변경사항이 저장되었습니다! 🎉');
+    } catch (error: any) {
+      console.error('❌ 저장 실패:', error);
+      if (error.response) {
+        console.error('응답 데이터:', error.response.data);
+        console.error('응답 상태:', error.response.status);
+      }
+      alert(`저장에 실패했습니다: ${error.response?.data?.error || error.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 시트 변경
+  const changeSheet = (sheetName: string) => {
+    if (!selectedFile) return;
+    
+    setSelectedSheet(sheetName);
+    const newData = getSampleData(selectedFile.type, sheetName);
+    setExcelData(newData);
+    setHistory([JSON.parse(JSON.stringify(newData))]);
+    setCurrentHistoryIndex(0);
+    setHasChanges(false);
+  };
+
+  // 행 추가
+  const addRow = () => {
+    if (!excelData) return;
+    
+    // 변경 전 상태를 히스토리에 저장
+    saveToHistory(excelData);
+    
+    const newRow = excelData.headers.map(() => '');
+    const newRows = [...excelData.rows, newRow];
+    setExcelData({ ...excelData, rows: newRows });
+    setHasChanges(true);
+  };
+
+  // 행 삭제
+  const deleteRow = (rowIndex: number) => {
+    if (!excelData || excelData.rows.length <= 1) return;
+    
+    if (confirm('이 행을 정말 삭제하시겠습니까?')) {
+      // 변경 전 상태를 히스토리에 저장
+      saveToHistory(excelData);
+      
+      const newRows = excelData.rows.filter((_, index) => index !== rowIndex);
+      setExcelData({ ...excelData, rows: newRows });
+      setHasChanges(true);
+    }
+  };
+
+  // 열 추가
+  const addColumn = () => {
+    if (!excelData) return;
+    
+    const columnName = prompt('새 열의 이름을 입력하세요:', `새 컬럼${excelData.headers.length + 1}`);
+    if (!columnName) return;
+    
+    // 변경 전 상태를 히스토리에 저장
+    saveToHistory(excelData);
+    
+    const newHeaders = [...excelData.headers, columnName];
+    const newRows = excelData.rows.map(row => [...row, '']);
+    setExcelData({ headers: newHeaders, rows: newRows });
+    setHasChanges(true);
+  };
+
+  // 열 삭제
+  const deleteColumn = (colIndex: number) => {
+    if (!excelData || excelData.headers.length <= 1) return;
+    
+    if (confirm(`'${excelData.headers[colIndex]}' 열을 정말 삭제하시겠습니까?`)) {
+      // 변경 전 상태를 히스토리에 저장
+      saveToHistory(excelData);
+      
+      const newHeaders = excelData.headers.filter((_, index) => index !== colIndex);
+      const newRows = excelData.rows.map(row => row.filter((_, index) => index !== colIndex));
+      setExcelData({ headers: newHeaders, rows: newRows });
+      setHasChanges(true);
+    }
+  };
+
+  // 파일 다운로드
+  const handleDownload = async (file: FileData) => {
+    try {
+      const response = await api.get(`/files/download?path=${encodeURIComponent(file.name)}`, {
+        responseType: 'blob'
+      });
+      
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', file.name);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('다운로드 실패:', error);
+      alert('다운로드에 실패했습니다.');
+    }
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'active': return 'success';
+      case 'updating': return 'warning';
+      case 'error': return 'danger';
+      default: return 'secondary';
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-blue-50">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        
+        {/* 상단 헤더 */}
+        <div className="mb-8">
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h1 className="text-display-lg font-bold text-gray-900 mb-2">
+                📁 Excel 파일 관리
+              </h1>
+              <p className="text-body-lg text-gray-600">
+                헬스장 운영 데이터를 실시간으로 편집하고 관리합니다
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <Button
+                onClick={() => setViewMode(viewMode === 'grid' ? 'table' : 'grid')}
+                className="btn-secondary"
+              >
+                {viewMode === 'grid' ? '📋 표 보기' : '🔲 격자 보기'}
+              </Button>
+              <Button className="btn-primary">
+                📊 전체 백업
+              </Button>
+            </div>
           </div>
           
-          <div className="flex items-center space-x-2">
-            {/* 편집 모드 토글 버튼 */}
-            <button
-              onClick={() => setEditMode(!editMode)}
-              className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-all duration-200 flex items-center space-x-1 ${
-                editMode 
-                  ? 'bg-gradient-to-r from-orange-500 to-orange-600 text-white shadow-md hover:shadow-lg' 
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-              }`}
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-              </svg>
-              <span>{editMode ? '편집 종료' : '편집 모드'}</span>
-            </button>
+          {/* 통계 카드 */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+            <Card className="card-elevated">
+              <CardBody className="text-center">
+                <div className="text-2xl mb-2">📊</div>
+                <div className="text-title-md font-bold text-primary-600">
+                  {files.length}
+                </div>
+                <div className="text-body-sm text-gray-600">활성 파일</div>
+              </CardBody>
+            </Card>
+            
+            <Card className="card-elevated">
+              <CardBody className="text-center">
+                <div className="text-2xl mb-2">👥</div>
+                <div className="text-title-md font-bold text-success-600">
+                  {files.reduce((sum, file) => sum + file.records, 0).toLocaleString()}
+                </div>
+                <div className="text-body-sm text-gray-600">총 레코드</div>
+              </CardBody>
+            </Card>
 
-            {/* 열 추가 버튼 */}
-            {editMode && (
-              <button
-                onClick={() => handleAddColumn(sheetName)}
-                className="px-3 py-1.5 text-sm bg-gradient-to-r from-purple-500 to-purple-600 text-white font-medium rounded-lg shadow-md hover:shadow-lg hover:from-purple-600 hover:to-purple-700 transform hover:scale-105 transition-all duration-200 flex items-center space-x-1"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                </svg>
-                <span>열 추가</span>
-              </button>
-            )}
+            <Card className="card-elevated">
+              <CardBody className="text-center">
+                <div className="text-2xl mb-2">⚡</div>
+                <div className="text-title-md font-bold text-gym-orange">
+                  LIVE
+                </div>
+                <div className="text-body-sm text-gray-600">실시간 편집</div>
+              </CardBody>
+            </Card>
 
-            {/* 새 행 추가 버튼 */}
-            {editMode && (
-              <button
-                onClick={() => handleAddRow(sheetName)}
-                className="px-3 py-1.5 text-sm bg-gradient-to-r from-blue-500 to-blue-600 text-white font-medium rounded-lg shadow-md hover:shadow-lg hover:from-blue-600 hover:to-blue-700 transform hover:scale-105 transition-all duration-200 flex items-center space-x-1"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                </svg>
-                <span>행 추가</span>
-              </button>
-            )}
-
-            {/* 저장 버튼 */}
-            {hasChanges && (
-              <button
-                onClick={handleSaveChanges}
-                disabled={saving}
-                className="px-3 py-1.5 bg-gradient-to-r from-green-500 to-green-600 text-white text-sm font-medium rounded-lg shadow-md hover:shadow-lg hover:from-green-600 hover:to-green-700 transform hover:scale-105 transition-all duration-200 flex items-center space-x-1 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {saving ? (
-                  <>
-                    <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                    </svg>
-                    <span>저장 중...</span>
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
-                    </svg>
-                    <span>저장</span>
-                  </>
-                )}
-              </button>
-            )}
+            <Card className="card-elevated">
+              <CardBody className="text-center">
+                <div className="text-2xl mb-2">🔒</div>
+                <div className="text-title-md font-bold text-warning-600">
+                  AUTO
+                </div>
+                <div className="text-body-sm text-gray-600">자동 백업</div>
+              </CardBody>
+            </Card>
           </div>
         </div>
         
-        {/* 가로 스크롤 컨테이너 */}
-        <div className="overflow-x-auto border rounded-lg">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                {editMode && (
-                  <th className="px-2 py-2 text-xs font-medium text-gray-500 uppercase tracking-wider text-center border-r border-gray-200">
-                    작업
-                  </th>
-                )}
-                {headers.map((header, index) => (
-                  <th key={`header-${index}-${String(header)}`} className="px-3 py-2 text-xs font-medium text-gray-500 uppercase tracking-wider text-left border-r border-gray-200 relative group">
-                    <div className="flex items-center justify-between">
-                      {editingCell?.sheetName === sheetName && editingCell?.rowIndex === 0 && editingCell?.colIndex === index ? (
-                        <input
-                          type="text"
-                          defaultValue={String(header || '')}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault();
-                              const target = e.target as HTMLInputElement;
-                              handleCellEdit(sheetName, 0, index, target.value);
-                              setEditingCell(null);
-                            } else if (e.key === 'Escape') {
-                              e.preventDefault();
-                              setEditingCell(null);
-                            }
-                          }}
-                          onBlur={(e) => {
-                            const target = e.target as HTMLInputElement;
-                            handleCellEdit(sheetName, 0, index, target.value);
-                            setEditingCell(null);
-                          }}
-                          className="w-24 px-2 py-1 text-sm border border-blue-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          autoFocus
-                        />
-                      ) : (
-                        <span 
-                          onClick={() => {
-                            if (editMode) {
-                              setEditingCell({ sheetName, rowIndex: 0, colIndex: index });
-                            }
-                          }}
-                          className={editMode ? "cursor-pointer hover:bg-gray-100 px-1 rounded" : ""}
-                        >
-                          {header ? String(header) : `컬럼 ${index + 1}`}
-                        </span>
-                      )}
-                      {editMode && (
-                        <button
-                          onClick={() => handleDeleteColumn(sheetName, index)}
-                          className="ml-2 opacity-0 group-hover:opacity-100 transition-opacity text-red-500 hover:text-red-700"
-                          title="열 삭제"
-                        >
-                          ×
-                        </button>
-                      )}
-                    </div>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {rows.map((row, rowIndex) => {
-                const actualRowIndex = rowIndex + 1;
-                const isNewRow = actualRowIndex >= (originalRowCount[sheetName] || 0);
-                
-                return (
-                  <tr key={`row-${rowIndex}`} className={`hover:bg-gray-50 ${isNewRow ? 'bg-green-50 border-l-4 border-l-green-500' : ''}`}>
-                    {editMode && (
-                      <td className="px-2 py-2 text-center border-r border-gray-200">
-                        <button
-                          onClick={() => handleDeleteRow(sheetName, actualRowIndex)}
-                          className="text-red-500 hover:text-red-700 font-bold"
-                          title="행 삭제"
-                        >
-                          ×
-                        </button>
-                      </td>
-                    )}
-                    {row.map((cell, cellIndex) => (
-                      <td key={`cell-${rowIndex}-${cellIndex}`} className="px-3 py-2 whitespace-nowrap text-sm text-gray-900 border-r border-gray-200">
-                        {editingCell?.sheetName === sheetName && editingCell?.rowIndex === actualRowIndex && editingCell?.colIndex === cellIndex ? (
-                          <input
-                            type="text"
-                            defaultValue={String(cell || '')}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.preventDefault();
-                                const target = e.target as HTMLInputElement;
-                                handleCellEdit(sheetName, actualRowIndex, cellIndex, target.value);
-                                setEditingCell(null);
-                              } else if (e.key === 'Escape') {
-                                e.preventDefault();
-                                setEditingCell(null);
-                              }
-                            }}
-                            onBlur={(e) => {
-                              const target = e.target as HTMLInputElement;
-                              handleCellEdit(sheetName, actualRowIndex, cellIndex, target.value);
-                              setEditingCell(null);
-                            }}
-                            className="w-32 px-2 py-1 text-sm border border-blue-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            autoFocus
-                          />
-                        ) : (
-                          <span 
-                            onClick={() => {
-                              if (editMode) {
-                                setEditingCell({ sheetName, rowIndex: actualRowIndex, colIndex: cellIndex });
-                              }
-                            }}
-                            className={editMode ? "cursor-pointer hover:bg-gray-100 px-1 rounded min-h-[20px] block" : ""}
-                          >
-                            {cell !== null && cell !== undefined && cell !== '' ? String(cell) : (
-                              isNewRow ? (
-                                <span className="text-gray-400 italic">새 데이터 입력</span>
-                              ) : '-'
-                            )}
-                          </span>
-                        )}
-                      </td>
-                    ))}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-
-        {/* 편집 도움말 */}
-        {editMode && (
-          <div className="mt-3 p-3 bg-blue-50 rounded-lg text-xs text-blue-700">
-            💡 <strong>편집 팁:</strong> 셀을 클릭하여 편집, Enter로 저장, Esc로 취소 | 행/열 삭제는 ×버튼 클릭
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  // 🎭 메인 렌더링
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50">
-        <div className="max-w-7xl mx-auto p-6">
-          <LoadingSpinner />
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-red-50 via-white to-pink-50">
-        <div className="max-w-7xl mx-auto p-6">
-          <ErrorDisplay message={error} onRetry={loadFiles} />
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50">
-      <div className="max-w-7xl mx-auto p-6">
-        {/* 헤더 섹션 - 개선된 디자인 */}
-        <div className="text-center mb-12">
-          <div className="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-2xl mb-6 shadow-lg">
-            <span className="text-3xl text-white">📁</span>
-          </div>
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent mb-3">
-            파일 관리 시스템
-          </h1>
-          <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-            Excel 파일을 쉽고 빠르게 관리하세요. 미리보기와 다운로드 기능을 제공합니다.
-          </p>
-        </div>
-
-        {files.length === 0 ? (
-          <EmptyState />
-        ) : (
-          <div className="space-y-3">
+        {/* 파일 목록 - 그리드 뷰 */}
+        {viewMode === 'grid' && (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
             {files.map((file) => (
-              <FileCard
-                key={`${file.category}-${file.name}-${file.modified}`}
-                file={file}
-                onPreview={handlePreview}
-                onDownload={handleDownload}
-              />
+              <Card key={file.id} className="card-elevated">
+                <CardHeader>
+                  <div className="flex items-center gap-3">
+                    <div className="text-3xl">{file.icon}</div>
+                    <div className="flex-1">
+                      <h3 className="text-title-md font-semibold mb-1">
+                        {file.type}
+                      </h3>
+                      <p className="text-body-sm text-gray-600">
+                        {file.description}
+                      </p>
+                    </div>
+                    <Badge className={`badge-${getStatusColor(file.status)}`}>
+                      {file.status === 'active' ? '활성' : '대기'}
+                    </Badge>
+                  </div>
+                </CardHeader>
+
+                <CardBody>
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-3 text-body-sm">
+                      <div>
+                        <div className="text-gray-500">파일명</div>
+                        <div className="font-medium truncate">{file.name}</div>
+                      </div>
+                      <div>
+                        <div className="text-gray-500">크기</div>
+                        <div className="font-medium">{file.size}</div>
+                      </div>
+                      <div>
+                        <div className="text-gray-500">레코드</div>
+                        <div className="font-medium">{file.records.toLocaleString()}개</div>
+                      </div>
+                      <div>
+                        <div className="text-gray-500">수정일</div>
+                        <div className="font-medium">{file.lastModified.split(' ')[0]}</div>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={() => handleEditFile(file)}
+                        className="btn-primary flex-1"
+                      >
+                        ✏️ 편집
+                      </Button>
+                      <Button
+                        onClick={() => handleDownload(file)}
+                        className="btn-secondary"
+                      >
+                        📥
+                      </Button>
+                      <Link to={`/chat/${file.agent}`}>
+                        <Button className="btn-gym">
+                          🤖
+                        </Button>
+                      </Link>
+                    </div>
+                  </div>
+                </CardBody>
+              </Card>
             ))}
           </div>
         )}
 
-        {/* 🔍 미리보기 모달 */}
-        {selectedFile && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-lg w-full max-w-6xl max-h-[90vh] overflow-hidden">
-              <div className="flex items-center justify-between p-4 border-b">
-                <div>
-                  <h2 className="text-xl font-semibold text-gray-900">{selectedFile.name}</h2>
-                  <p className="text-sm text-gray-600">{getCategoryInfo(selectedFile.category).name}</p>
-                </div>
-                <div className="flex items-center space-x-3">
-                  <div className="text-sm text-gray-500">
-                    💡 편집 모드를 활성화하여 데이터를 수정하고 새 행을 추가할 수 있습니다
+        {/* 파일 목록 - 테이블 뷰 */}
+        {viewMode === 'table' && (
+          <Card className="card-elevated">
+            <CardHeader>
+              <h3 className="text-title-lg font-semibold">파일 상세 목록</h3>
+            </CardHeader>
+            <CardBody>
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse">
+                  <thead>
+                    <tr className="border-b border-gray-200">
+                      <th className="text-left p-3 font-medium text-gray-900">파일</th>
+                      <th className="text-left p-3 font-medium text-gray-900">타입</th>
+                      <th className="text-left p-3 font-medium text-gray-900">크기</th>
+                      <th className="text-left p-3 font-medium text-gray-900">레코드</th>
+                      <th className="text-left p-3 font-medium text-gray-900">수정일</th>
+                      <th className="text-left p-3 font-medium text-gray-900">상태</th>
+                      <th className="text-left p-3 font-medium text-gray-900">작업</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {files.map((file) => (
+                      <tr key={file.id} className="border-b border-gray-100 hover:bg-gray-50">
+                        <td className="p-3">
+                          <div className="flex items-center gap-3">
+                            <span className="text-xl">{file.icon}</span>
+                            <div>
+                              <div className="font-medium">{file.name}</div>
+                              <div className="text-body-sm text-gray-500">
+                                {file.description}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="p-3">
+                          <Badge className="badge-primary">
+                            {file.type}
+                          </Badge>
+                        </td>
+                        <td className="p-3">{file.size}</td>
+                        <td className="p-3">{file.records.toLocaleString()}개</td>
+                        <td className="p-3">{file.lastModified}</td>
+                        <td className="p-3">
+                          <Badge className={`badge-${getStatusColor(file.status)}`}>
+                            {file.status === 'active' ? '활성' : '대기'}
+                          </Badge>
+                        </td>
+                        <td className="p-3">
+                          <div className="flex items-center gap-2">
+                            <Button
+                              onClick={() => handleEditFile(file)}
+                              className="btn-ghost btn-sm"
+                            >
+                              ✏️
+                            </Button>
+                            <Button
+                              onClick={() => handleDownload(file)}
+                              className="btn-ghost btn-sm"
+                            >
+                              📥
+                            </Button>
+                            <Link to={`/chat/${file.agent}`}>
+                              <Button className="btn-ghost btn-sm">
+                                🤖
+                              </Button>
+                            </Link>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </CardBody>
+          </Card>
+        )}
+
+        {/* 파일 편집 미리보기 모달 */}
+        {showPreviewModal && selectedFile && (
+          <Modal
+            isOpen={showPreviewModal}
+            onClose={() => setShowPreviewModal(false)}
+            size="full"
+          >
+            <ModalHeader onClose={() => setShowPreviewModal(false)}>
+              <h2 className="text-title-lg font-semibold">📝 {selectedFile.name} 편집</h2>
+            </ModalHeader>
+            <ModalBody>
+              <div className="space-y-4">
+              {/* 시트 탭 */}
+              {excelData?.sheets && excelData.sheets.length > 1 && (
+                <div className="border-b border-gray-200">
+                  <div className="flex space-x-1">
+                    {excelData.sheets.map((sheetName) => (
+                      <button
+                        key={sheetName}
+                        onClick={() => changeSheet(sheetName)}
+                        className={`px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 transition-colors ${
+                          selectedSheet === sheetName
+                            ? 'text-blue-600 border-blue-600 bg-blue-50'
+                            : 'text-gray-500 border-transparent hover:text-gray-700 hover:border-gray-300'
+                        }`}
+                      >
+                        📊 {sheetName}
+                      </button>
+                    ))}
                   </div>
-                  <button
-                    onClick={closePreview}
-                    className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-                    aria-label="미리보기 닫기"
+                </div>
+              )}
+              
+              {/* 상단 도구 모음 */}
+              <div className="flex items-center justify-between bg-gray-50 p-4 rounded-lg">
+                <div className="flex items-center gap-4">
+                  <div className="text-2xl">{selectedFile.icon}</div>
+                  <div>
+                    <h4 className="font-semibold">{selectedFile.type}</h4>
+                    <p className="text-body-sm text-gray-600">{selectedFile.description}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {hasChanges && (
+                    <Badge className="badge-warning">
+                      변경됨
+                    </Badge>
+                  )}
+                  <Button
+                    onClick={saveChanges}
+                    disabled={!hasChanges || loading}
+                    className="btn-gym"
                   >
-                    ❌
-                  </button>
+                    {loading ? '저장 중...' : '💾 저장'}
+                  </Button>
+                  <Button
+                    onClick={() => setShowPreviewModal(false)}
+                    className="btn-secondary"
+                  >
+                    닫기
+                  </Button>
                 </div>
               </div>
-              
-              <div className="p-4 max-h-[calc(90vh-120px)] overflow-auto">
-                {previewLoading ? (
-                  <LoadingSpinner />
-                ) : preview ? (
-                  <div>
-                    {/* 📑 시트 탭 */}
-                    {preview.sheet_names.length > 1 && (
-                      <div className="mb-4 border-b">
-                        <div className="flex space-x-4">
-                          {preview.sheet_names.map((sheetName) => (
-                            <button
-                              key={`sheet-${sheetName}`}
-                              onClick={() => setActiveSheetName(sheetName)}
-                              className={`px-4 py-2 text-sm font-medium transition-colors ${
-                                activeSheetName === sheetName
-                                  ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50'
-                                  : 'text-gray-600 hover:text-blue-600 hover:bg-gray-50'
-                              }`}
-                            >
-                              {sheetName}
-                            </button>
-                          ))}
-                        </div>
+
+                              {/* Excel 데이터 테이블 */}
+                {loading ? (
+                  <div className="text-center py-8">
+                    <div className="spinner"></div>
+                    <p className="mt-2">데이터를 불러오는 중...</p>
+                  </div>
+                ) : excelData ? (
+                  <div className="space-y-4">
+                    {/* 테이블 조작 버튼 */}
+                    <div className="flex items-center gap-2 p-3 bg-gray-50 rounded-lg">
+                      {/* Undo/Redo 버튼 */}
+                      <div className="flex items-center gap-1 pr-3 border-r border-gray-300">
+                        <Button
+                          onClick={undo}
+                          disabled={currentHistoryIndex <= 0}
+                          className="btn-secondary btn-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                          title="실행 취소 (Ctrl+Z)"
+                        >
+                          ↶ 되돌리기
+                        </Button>
+                        <Button
+                          onClick={redo}
+                          disabled={currentHistoryIndex >= history.length - 1}
+                          className="btn-secondary btn-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                          title="다시 실행 (Ctrl+Y)"
+                        >
+                          ↷ 다시하기
+                        </Button>
                       </div>
-                    )}
-                    
-                    {/* 📊 활성 시트 데이터 표시 */}
-                    {(() => {
-                      const currentSheetName = activeSheetName || preview.sheet_names[0];
-                      const currentSheet = preview.sheets[currentSheetName];
                       
-                      if (!currentSheet) {
-                        return (
-                          <div className="text-center py-12">
-                            <div className="text-6xl mb-4">⚠️</div>
-                            <p className="text-gray-500">시트 데이터를 찾을 수 없습니다.</p>
-                          </div>
-                        );
-                      }
-                      
-                      return <TablePreview sheetData={currentSheet} sheetName={currentSheetName} />;
-                    })()}
+                      <Button
+                        onClick={addColumn}
+                        className="btn-primary btn-sm"
+                      >
+                        ➕ 열 추가
+                      </Button>
+                      <Button
+                        onClick={addRow}
+                        className="btn-primary btn-sm"
+                      >
+                        ➕ 행 추가
+                      </Button>
+                      <div className="text-body-sm text-gray-600 ml-auto flex items-center gap-4">
+                        <span>
+                          총 {excelData.rows.length}행 × {excelData.headers.length}열
+                        </span>
+                        {history.length > 1 && (
+                          <span className="bg-blue-50 text-blue-700 px-2 py-1 rounded text-xs">
+                            히스토리: {currentHistoryIndex + 1}/{history.length}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="overflow-auto max-h-96 border border-gray-200 rounded-lg" style={{maxWidth: '100%'}}>
+                      <table className="w-full border-collapse">
+                        <thead className="sticky top-0 bg-gray-100 z-10 shadow-md border-b-2 border-gray-300">
+                                                      <tr>
+                                                              <th className="border border-gray-300 p-2 w-12 text-center bg-gray-100 sticky top-0 z-20" style={{backgroundColor: '#f3f4f6'}}>
+                                  #
+                                </th>
+                                {excelData.headers.map((header, index) => (
+                                                                    <th key={index} className="border border-gray-300 p-2 text-left font-medium relative group min-w-20 max-w-40 bg-gray-100 sticky top-0 z-20" style={{backgroundColor: '#f3f4f6'}}>
+                                    <div className="flex items-center justify-between">
+                                      {editingHeader === index ? (
+                                        <input
+                                          type="text"
+                                          value={editValue}
+                                          onChange={(e) => setEditValue(e.target.value)}
+                                          className="w-full border-none outline-none bg-transparent font-medium text-sm"
+                                          onBlur={finishHeaderEdit}
+                                          onKeyDown={(e) => {
+                                            if (e.key === 'Enter') finishHeaderEdit();
+                                            if (e.key === 'Escape') cancelEdit();
+                                          }}
+                                          autoFocus
+                                        />
+                                      ) : (
+                                        <span 
+                                          className="cursor-pointer hover:bg-blue-100 px-1 py-0.5 rounded text-sm"
+                                          onClick={() => startHeaderEdit(index, header)}
+                                          title="클릭하여 편집"
+                                        >
+                                          {header}
+                                        </span>
+                                      )}
+                                      <button
+                                        onClick={() => deleteColumn(index)}
+                                        className="opacity-0 group-hover:opacity-100 ml-2 p-1 text-red-500 hover:bg-red-100 rounded"
+                                        title="열 삭제"
+                                      >
+                                        🗑️
+                                      </button>
+                                    </div>
+                                  </th>
+                            ))}
+                                                          <th className="border border-gray-300 p-2 w-12 text-center bg-gray-100 sticky top-0 z-20" style={{backgroundColor: '#f3f4f6'}}>
+                                <button
+                                  className="p-1 text-red-500 hover:bg-red-100 rounded"
+                                  title="전체 행 삭제 모드"
+                                >
+                                  🗑️
+                                </button>
+                              </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {excelData.rows.map((row, rowIndex) => (
+                            <tr key={rowIndex} className="hover:bg-gray-50 group">
+                              <td className="border border-gray-300 p-2 text-center text-gray-500 font-mono text-sm">
+                                {rowIndex + 1}
+                              </td>
+                              {row.map((cell, colIndex) => (
+                                <td
+                                  key={colIndex}
+                                  className="border border-gray-300 p-2 cursor-pointer hover:bg-blue-50 relative min-w-20 max-w-40"
+                                  onClick={() => startCellEdit(rowIndex, colIndex, cell)}
+                                >
+                                  {editingCell?.row === rowIndex && editingCell?.col === colIndex ? (
+                                    <input
+                                      type="text"
+                                      value={editValue}
+                                      onChange={(e) => setEditValue(e.target.value)}
+                                      onBlur={finishCellEdit}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') finishCellEdit();
+                                        if (e.key === 'Escape') cancelEdit();
+                                      }}
+                                      className="w-full p-1 border border-blue-500 rounded"
+                                      autoFocus
+                                    />
+                                  ) : (
+                                    <span className="block w-full h-full">{cell || '-'}</span>
+                                  )}
+                                </td>
+                              ))}
+                              <td className="border border-gray-300 p-2 text-center">
+                                <button
+                                  onClick={() => deleteRow(rowIndex)}
+                                  className="opacity-0 group-hover:opacity-100 p-1 text-red-500 hover:bg-red-100 rounded"
+                                  title="행 삭제"
+                                  disabled={excelData.rows.length <= 1}
+                                >
+                                  🗑️
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 ) : (
-                  <div className="text-center py-12">
-                    <div className="text-6xl mb-4">⚠️</div>
-                    <p className="text-gray-500">미리보기를 불러올 수 없습니다.</p>
+                  <div className="text-center py-8 text-gray-500">
+                    데이터를 불러올 수 없습니다.
                   </div>
                 )}
+
+              {/* 편집 도움말 */}
+              <div className="bg-blue-50 p-4 rounded-lg">
+                <h5 className="font-medium mb-2">💡 편집 가이드</h5>
+                <ul className="text-body-sm text-gray-600 space-y-1">
+                  <li>• 테이블 헤더(컬럼명)를 클릭하여 이름을 변경할 수 있습니다</li>
+                  <li>• 데이터 셀을 클릭하여 직접 편집할 수 있습니다</li>
+                  <li>• Enter 키로 편집 완료, ESC 키로 편집 취소가 가능합니다</li>
+                  <li>• 변경사항은 '저장' 버튼을 눌러야 실제로 저장됩니다</li>
+                  <li>• 실시간으로 AI 에이전트가 변경된 데이터를 활용합니다</li>
+                </ul>
               </div>
             </div>
-          </div>
-        )}
+            </ModalBody>
+           </Modal>
+         )}
       </div>
     </div>
   );

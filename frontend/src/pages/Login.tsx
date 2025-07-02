@@ -1,119 +1,206 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../hooks/useAuth';
+import { useAuthStore } from '../store/authStore';
+import { 
+  Card, 
+  CardHeader, 
+  CardBody, 
+  Button,
+  useToast 
+} from '../components/ui';
 
 const Login: React.FC = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const { login } = useAuthStore();
   const navigate = useNavigate();
-  const { login, isLoading, error, clearError, isAuthenticated, isInitialized } = useAuth();
+  const { addToast } = useToast();
 
-  // 이미 로그인된 사용자는 대시보드로 리다이렉트
-  useEffect(() => {
-    if (isInitialized && isAuthenticated) {
-      navigate('/', { replace: true });
-    }
-  }, [isAuthenticated, isInitialized, navigate]);
-
-  const handleLogin = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    clearError();
+    
+    if (!username.trim() || !password.trim()) {
+      addToast({
+        type: 'warning',
+        title: '입력 오류',
+        message: '사용자명과 비밀번호를 모두 입력해주세요.'
+      });
+      return;
+    }
 
+    setIsLoading(true);
+    
     try {
-      await login({ username, password });
-      navigate('/');
+      // 간단한 로그인 로직 (실제로는 서버 인증 필요)
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      if (username === 'admin' && password === 'admin123') {
+        await login({ username, password });
+        addToast({
+          type: 'success',
+          title: '로그인 성공',
+          message: '헬스장 관리 시스템에 오신 것을 환영합니다!'
+        });
+        navigate('/dashboard');
+      } else {
+        addToast({
+          type: 'error',
+          title: '로그인 실패',
+          message: '사용자명 또는 비밀번호가 올바르지 않습니다.'
+        });
+      }
     } catch (error) {
-      // 에러는 useAuth에서 처리됨
-      // 로그인 실패는 authStore에서 처리
+      addToast({
+        type: 'error',
+        title: '시스템 오류',
+        message: '로그인 처리 중 오류가 발생했습니다.'
+      });
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  // 초기화 중일 때 로딩 화면 표시
-  if (!isInitialized) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center">
-        <div className="text-center text-white">
-          <div className="text-4xl mb-4">🔄</div>
-          <div className="text-lg">로딩 중...</div>
-        </div>
-      </div>
-    );
-  }
+  const demoLogin = () => {
+    setUsername('admin');
+    setPassword('admin123');
+    addToast({
+      type: 'info',
+      message: 'Demo 계정이 자동으로 입력되었습니다.'
+    });
+  };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-500 to-blue-700 flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-xl p-8 w-full max-w-md">
-        {/* 헤더 */}
-        <div className="text-center mb-8">
-          <div className="text-4xl mb-4">🏋️</div>
-          <h1 className="text-2xl font-bold text-gray-800">Gym AI MVP</h1>
-          <p className="text-gray-600 mt-2">헬스장 관리 시스템</p>
-        </div>
+    <div className="min-h-screen bg-gym-gradient flex items-center justify-center p-4">
+      <div className="w-full max-w-md animate-fade-in">
+        <Card variant="elevated" className="backdrop-blur-sm bg-white/95 shadow-gym">
+          <CardHeader className="text-center">
+            <div className="text-6xl mb-4 animate-bounce-gentle">🏋️</div>
+            <h1 className="text-title-xl font-bold text-gym-gradient mb-2">
+              Gym AI System
+            </h1>
+            <p className="text-body-md text-gray-600">
+              AI 기반 헬스장 관리 시스템
+            </p>
+          </CardHeader>
 
-        {/* 로그인 폼 */}
-        <form onSubmit={handleLogin} className="space-y-6">
-          <div>
-            <label htmlFor="username" className="block text-sm font-medium text-gray-700 mb-2">
-              사용자명
-            </label>
-            <input
-              id="username"
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500"
-              placeholder="사용자명을 입력하세요"
-              required
-            />
-          </div>
+          <CardBody>
+            <form onSubmit={handleSubmit} className="space-y-6">
+              {/* 사용자명 입력 */}
+              <div>
+                <label htmlFor="username" className="block text-body-sm font-medium text-gray-700 mb-2">
+                  사용자명
+                </label>
+                <input
+                  id="username"
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  className="input w-full focus-gym-ring"
+                  placeholder="사용자명을 입력하세요"
+                  disabled={isLoading}
+                />
+              </div>
 
-          <div>
-            <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
-              비밀번호
-            </label>
-            <input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500"
-              placeholder="비밀번호를 입력하세요"
-              required
-            />
-          </div>
+              {/* 비밀번호 입력 */}
+              <div>
+                <label htmlFor="password" className="block text-body-sm font-medium text-gray-700 mb-2">
+                  비밀번호
+                </label>
+                <input
+                  id="password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="input w-full focus-gym-ring"
+                  placeholder="비밀번호를 입력하세요"
+                  disabled={isLoading}
+                />
+              </div>
 
-          <button
-            type="submit"
-            disabled={isLoading}
-            className="w-full bg-blue-500 text-white p-3 rounded-lg hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
-          >
-            {isLoading ? '로그인 중...' : '로그인'}
-          </button>
-        </form>
+              {/* 로그인 버튼 */}
+              <Button
+                type="submit"
+                variant="gym"
+                size="lg"
+                loading={isLoading}
+                className="w-full"
+              >
+                {isLoading ? '로그인 중...' : '🚀 로그인'}
+              </Button>
 
-        {/* 에러 메시지 */}
-        {error && (
-          <div className="mt-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded">
-            {error}
-          </div>
-        )}
+              {/* 데모 계정 버튼 */}
+              <Button
+                type="button"
+                variant="secondary"
+                size="md"
+                onClick={demoLogin}
+                disabled={isLoading}
+                className="w-full"
+              >
+                📝 Demo 계정 사용
+              </Button>
+            </form>
 
-        {/* 테스트 계정 안내 */}
-        <div className="mt-6 p-4 bg-blue-50 rounded-lg">
-          <h3 className="text-sm font-semibold text-blue-800 mb-2">
-            🧪 테스트 계정
-          </h3>
-          <div className="text-sm text-blue-700">
-            <div>사용자명: <code className="bg-blue-100 px-1 rounded">admin</code></div>
-            <div>비밀번호: <code className="bg-blue-100 px-1 rounded">admin123</code></div>
-          </div>
-        </div>
+            {/* 안내 정보 */}
+            <div className="mt-8 space-y-4">
+              <div className="text-center">
+                <div className="inline-flex items-center gap-2 px-3 py-2 bg-gym-orange/10 rounded-lg border border-gym-orange/20">
+                  <span className="text-gym-orange text-sm">💡</span>
+                  <span className="text-caption text-gym-dark font-medium">
+                    Demo: admin / admin123
+                  </span>
+                </div>
+              </div>
 
-        {/* 기능 안내 */}
-        <div className="mt-6 text-center">
-          <p className="text-xs text-gray-500">
-            🚀 30분 안에 실행 가능한 MVP 버전
+              <div className="text-center space-y-2">
+                <h3 className="text-body-sm font-semibold text-gray-800">
+                  🤖 포함된 AI 에이전트:
+                </h3>
+                <div className="grid grid-cols-2 gap-2 text-caption text-gray-600">
+                  <div className="flex items-center gap-1">
+                    <span>👥</span>
+                    <span>회원관리</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span>👷</span>
+                    <span>직원관리</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span>💼</span>
+                    <span>인사관리</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span>📦</span>
+                    <span>재고관리</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="text-center">
+                <div className="inline-flex items-center gap-2 px-3 py-2 bg-success-light rounded-lg">
+                  <div className="w-2 h-2 bg-success rounded-full animate-pulse"></div>
+                  <span className="text-caption text-success-dark font-medium">
+                    시스템 준비 완료
+                  </span>
+                </div>
+              </div>
+            </div>
+          </CardBody>
+        </Card>
+
+        {/* 하단 정보 */}
+        <div className="text-center mt-6 space-y-2">
+          <p className="text-body-sm text-white/80">
+            🚀 30분 만에 실행 가능한 MVP
           </p>
+          <div className="flex items-center justify-center gap-4 text-caption text-white/60">
+            <span>v1.0.0</span>
+            <span>•</span>
+            <span>React + TypeScript</span>
+            <span>•</span>
+            <span>AI Powered</span>
+          </div>
         </div>
       </div>
     </div>

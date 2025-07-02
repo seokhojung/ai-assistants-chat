@@ -14,19 +14,19 @@ interface ChatWindowProps {
 const TableComponent: React.FC<{ tableData: TableData }> = ({ tableData }) => {
   return (
     <div className="mt-4 w-full">
-      <h4 className="font-semibold text-gray-800 mb-3 flex items-center text-sm">
+      <h4 className="text-title-sm font-semibold text-gray-800 mb-3 flex items-center">
         📊 {tableData.title}
       </h4>
       
       {/* 가로 스크롤 가능한 표 */}
-      <div className="overflow-x-auto bg-white rounded-lg border border-gray-200 shadow-sm">
-        <table className="w-full min-w-full text-sm">
-          <thead className="bg-blue-50">
+      <div className="overflow-x-auto bg-white rounded-xl border border-gray-200 shadow-soft">
+        <table className="w-full min-w-full text-body-sm">
+          <thead className="bg-primary-50">
             <tr>
               {tableData.headers.map((header, index) => (
                 <th 
                   key={index}
-                  className="px-4 py-3 text-left text-xs font-medium text-blue-800 uppercase tracking-wider border-b border-gray-200 whitespace-nowrap"
+                  className="px-4 py-3 text-left text-caption font-semibold text-primary-800 uppercase tracking-wider border-b border-gray-200 whitespace-nowrap"
                 >
                   {header}
                 </th>
@@ -37,13 +37,13 @@ const TableComponent: React.FC<{ tableData: TableData }> = ({ tableData }) => {
             {tableData.rows.map((row, rowIndex) => (
               <tr 
                 key={rowIndex}
-                className={`hover:bg-gray-50 ${rowIndex % 2 === 0 ? 'bg-white' : 'bg-gray-25'}`}
+                className={`hover:bg-neutral-50 transition-colors ${rowIndex % 2 === 0 ? 'bg-white' : 'bg-neutral-25'}`}
               >
                 {row.map((cell, cellIndex) => (
                   <td 
                     key={cellIndex}
-                    className="px-4 py-3 text-sm text-gray-900 whitespace-nowrap"
-                    title={cell} // 툴크으로 전체 내용 표시
+                    className="px-4 py-3 text-body-sm text-gray-900 whitespace-nowrap"
+                    title={cell} // 툴팁으로 전체 내용 표시
                   >
                     <div className="max-w-[200px] truncate">
                       {cell}
@@ -57,8 +57,8 @@ const TableComponent: React.FC<{ tableData: TableData }> = ({ tableData }) => {
       </div>
       
       {tableData.summary && (
-        <div className="mt-3 p-3 bg-blue-100 rounded-lg">
-          <p className="text-sm text-blue-800 font-medium">
+        <div className="mt-3 p-3 bg-primary-50 rounded-lg border border-primary-200">
+          <p className="text-body-sm text-primary-800 font-medium">
             📈 {tableData.summary}
           </p>
         </div>
@@ -169,26 +169,51 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ agentType, agentName }) => {
     }, 100);
   };
 
+  // 에이전트별 헤더 색상 가져오기
+  const getAgentHeaderColor = () => {
+    const colorMap: { [key: string]: string } = {
+      member: 'from-primary-50 to-primary-100',
+      staff: 'from-success-light/50 to-success-light',
+      hr: 'from-gym-orange/10 to-gym-orange/20',
+      inventory: 'from-warning-light/50 to-warning-light'
+    };
+    return colorMap[agentType] || 'from-primary-50 to-primary-100';
+  };
+
+  const quickQuestions = [
+    { text: '💡 도움말', query: '도움말', color: 'btn-secondary' },
+    { text: '📋 전체 목록', query: '전체 목록 보여줘', color: 'btn-primary' },
+    { text: '📊 통계 정보', query: '최근 통계를 알려줘', color: 'btn-gym' },
+    { text: '❓ 자주 묻는 질문', query: '자주 묻는 질문은?', color: 'btn-ghost' }
+  ];
+
   return (
-    <div className="flex flex-col h-full bg-white rounded-lg shadow-lg">
+    <div className="chat-container animate-fade-in">
       {/* 채팅 헤더 */}
-      <div className="p-4 border-b bg-gradient-to-r from-blue-50 to-blue-100">
+      <div className={`chat-header bg-gradient-to-r ${getAgentHeaderColor()}`}>
         <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-xl font-bold text-blue-800">
-          {agentName}
-        </h2>
-        <p className="text-sm text-blue-600">
+          <div className="flex-1">
+            <h2 className="text-title-xl font-bold text-gray-800 mb-1">
+              {agentName}
+            </h2>
+            <p className="text-body-md text-gray-600 mb-2">
               궁금한 것을 자유롭게 물어보세요! 💬
-        </p>
-            <div className="text-xs text-blue-500 mt-1">
-              💬 대화 기록: {currentMessages.length - 1}개 메시지
+            </p>
+            <div className="flex items-center gap-4 text-body-sm text-gray-500">
+              <div className="flex items-center gap-1">
+                <div className="w-2 h-2 bg-success rounded-full animate-pulse"></div>
+                <span>온라인</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <span>💬</span>
+                <span>대화 기록: {currentMessages.length - 1}개</span>
+              </div>
             </div>
           </div>
           {currentMessages.length > 1 && (
             <button
               onClick={handleClearChat}
-              className="px-3 py-1 text-xs bg-red-100 text-red-600 rounded-full hover:bg-red-200 transition-colors"
+              className="btn-danger btn-sm hover-scale"
               title="대화 기록 삭제"
             >
               🗑️ 기록 삭제
@@ -198,22 +223,18 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ agentType, agentName }) => {
       </div>
 
       {/* 메시지 영역 */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
+      <div className="chat-messages">
         {currentMessages.map(message => (
           <div 
             key={message.id} 
-            className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}
+            className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'} animate-slide-up`}
           >
             <div className={`${
               message.sender === 'user' 
-                ? 'max-w-[80%] min-w-[100px]' // 사용자 메시지: 최대 80%, 최소 100px
+                ? 'message-user max-w-[80%]' 
                 : message.tableData 
-                  ? 'w-full max-w-4xl' // AI 표 데이터: 전체 너비
-                  : 'max-w-[85%] min-w-[120px]' // AI 일반 메시지: 최대 85%, 최소 120px
-            } px-4 py-3 rounded-lg shadow-sm ${
-              message.sender === 'user' 
-                ? 'bg-blue-500 text-white' 
-                : 'bg-white text-gray-800 border border-gray-200'
+                  ? 'w-full max-w-4xl message-ai' 
+                  : 'message-ai max-w-[85%]'
             }`}>
               {message.sender === 'ai' ? (
                 <div className="prose prose-sm max-w-none">
@@ -221,54 +242,54 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ agentType, agentName }) => {
                     remarkPlugins={[remarkGfm]}
                     components={{
                       table: ({node, ...props}) => (
-                        <div className="overflow-x-auto my-3 bg-white rounded-lg border border-gray-200">
-                          <table className="w-full min-w-full text-sm" {...props} />
+                        <div className="overflow-x-auto my-3 bg-white rounded-lg border border-gray-200 shadow-soft">
+                          <table className="w-full min-w-full text-body-sm" {...props} />
                         </div>
                       ),
                       thead: ({node, ...props}) => (
-                        <thead className="bg-blue-50" {...props} />
+                        <thead className="bg-primary-50" {...props} />
                       ),
                       th: ({node, ...props}) => (
-                        <th className="px-4 py-3 text-left text-xs font-medium text-blue-800 uppercase tracking-wider border-b border-gray-200 whitespace-nowrap" {...props} />
+                        <th className="px-4 py-3 text-left text-caption font-semibold text-primary-800 uppercase tracking-wider border-b border-gray-200 whitespace-nowrap" {...props} />
                       ),
                       td: ({node, ...props}) => (
-                        <td className="px-4 py-3 text-sm text-gray-900 border-b border-gray-200 whitespace-nowrap" {...props} />
+                        <td className="px-4 py-3 text-body-sm text-gray-900 border-b border-gray-200 whitespace-nowrap" {...props} />
                       ),
                       tr: ({node, ...props}) => (
-                        <tr className="hover:bg-gray-50" {...props} />
+                        <tr className="hover:bg-neutral-50 transition-colors" {...props} />
                       ),
                       p: ({node, ...props}) => (
-                        <p className="mb-2 text-gray-800 leading-relaxed" {...props} />
+                        <p className="mb-2 text-gray-800 leading-relaxed text-body-md" {...props} />
                       ),
                       strong: ({node, ...props}) => (
-                        <strong className="font-bold text-blue-600" {...props} />
+                        <strong className="font-semibold text-primary-600" {...props} />
                       ),
                       em: ({node, ...props}) => (
-                        <em className="text-green-600" {...props} />
+                        <em className="text-success" {...props} />
                       ),
                       h1: ({node, ...props}) => (
-                        <h1 className="text-lg font-bold text-gray-800 mb-2" {...props} />
+                        <h1 className="text-title-lg font-bold text-gray-800 mb-2" {...props} />
                       ),
                       h2: ({node, ...props}) => (
-                        <h2 className="text-md font-bold text-gray-800 mb-2" {...props} />
+                        <h2 className="text-title-md font-bold text-gray-800 mb-2" {...props} />
                       ),
                       h3: ({node, ...props}) => (
-                        <h3 className="text-sm font-bold text-gray-800 mb-1" {...props} />
+                        <h3 className="text-title-sm font-semibold text-gray-800 mb-1" {...props} />
                       ),
                       ul: ({node, ...props}) => (
-                        <ul className="list-disc list-inside mb-2 text-gray-800" {...props} />
+                        <ul className="list-disc list-inside mb-2 text-gray-800 space-y-1" {...props} />
                       ),
                       ol: ({node, ...props}) => (
-                        <ol className="list-decimal list-inside mb-2 text-gray-800" {...props} />
+                        <ol className="list-decimal list-inside mb-2 text-gray-800 space-y-1" {...props} />
                       ),
                       li: ({node, ...props}) => (
-                        <li className="mb-1 text-gray-800" {...props} />
+                        <li className="text-gray-800" {...props} />
                       ),
                       code: ({node, ...props}) => (
-                        <code className="bg-gray-100 px-1 py-0.5 rounded text-sm text-gray-800" {...props} />
+                        <code className="bg-neutral-100 px-1.5 py-0.5 rounded text-body-sm text-gray-800 font-mono" {...props} />
                       ),
                       blockquote: ({node, ...props}) => (
-                        <blockquote className="border-l-4 border-blue-300 pl-4 italic text-gray-700" {...props} />
+                        <blockquote className="border-l-4 border-primary-300 pl-4 italic text-gray-700 bg-primary-50 py-2 rounded-r" {...props} />
                       )
                     }}
                   >
@@ -276,7 +297,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ agentType, agentName }) => {
                   </ReactMarkdown>
                 </div>
               ) : (
-                <div className="break-words">{message.text}</div>
+                <div className="text-body-md break-words">{message.text}</div>
               )}
               
               {/* 표 데이터가 있으면 렌더링 */}
@@ -284,9 +305,7 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ agentType, agentName }) => {
                 <TableComponent tableData={message.tableData} />
               )}
               
-              <div className={`text-xs mt-2 ${
-                message.sender === 'user' ? 'text-blue-100' : 'text-gray-500'
-              }`}>
+              <div className="message-time">
                 {formatTime(message.timestamp)}
               </div>
             </div>
@@ -295,13 +314,15 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ agentType, agentName }) => {
         
         {/* 로딩 표시 */}
         {isLoading && (
-          <div className="flex justify-start">
-            <div className="bg-white border border-gray-200 text-gray-800 px-4 py-3 rounded-lg shadow-sm max-w-[70%]">
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce"></div>
-                <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-                <span className="text-sm text-gray-600 ml-2">AI가 응답을 준비하고 있습니다...</span>
+          <div className="flex justify-start animate-slide-up">
+            <div className="message-ai max-w-[70%]">
+              <div className="chat-typing-indicator">
+                <div className="flex items-center gap-1">
+                  <div className="w-2 h-2 bg-primary-500 rounded-full animate-bounce"></div>
+                  <div className="w-2 h-2 bg-primary-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                  <div className="w-2 h-2 bg-primary-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                </div>
+                <span className="ml-2">AI가 응답을 준비하고 있습니다...</span>
               </div>
             </div>
           </div>
@@ -312,56 +333,52 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ agentType, agentName }) => {
       </div>
 
       {/* 입력 영역 */}
-      <div className="p-4 border-t bg-white">
-        <div className="flex gap-2">
+      <div className="chat-input-area">
+        {/* 빠른 질문 버튼들 */}
+        <div className="mb-3 flex flex-wrap gap-2">
+          {quickQuestions.map((question, index) => (
+            <button
+              key={index}
+              onClick={() => handleQuickQuestion(question.query)}
+              className={`${question.color} btn-sm transition-all duration-200 hover-scale`}
+              disabled={isLoading}
+            >
+              {question.text}
+            </button>
+          ))}
+        </div>
+        
+        <div className="flex gap-3">
           <input
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
             placeholder="메시지를 입력하세요..."
-            className="flex-1 p-3 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+            className="input flex-1 focus-gym-ring"
             disabled={isLoading}
           />
           <button
             onClick={sendMessage}
             disabled={!input.trim() || isLoading}
-            className="px-6 py-3 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors font-medium"
+            className="btn-gym hover-scale flex-shrink-0"
           >
-            {isLoading ? '전송중...' : '전송'}
+            {isLoading ? (
+              <div className="flex items-center gap-2">
+                <div className="spinner-sm spinner-gym"></div>
+                전송중
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <span>전송</span>
+                <span>🚀</span>
+              </div>
+            )}
           </button>
         </div>
         
-        {/* 빠른 질문 버튼들 */}
-        <div className="mt-3 flex flex-wrap gap-2">
-          <button
-            onClick={() => handleQuickQuestion('도움말')}
-            className="px-3 py-1 text-sm bg-blue-100 text-blue-700 rounded-full hover:bg-blue-200 transition-colors"
-            disabled={isLoading}
-          >
-            💡 도움말
-          </button>
-          <button
-            onClick={() => handleQuickQuestion('전체 목록 보여줘')}
-            className="px-3 py-1 text-sm bg-green-100 text-green-700 rounded-full hover:bg-green-200 transition-colors"
-            disabled={isLoading}
-          >
-            📋 전체 목록
-          </button>
-          <button
-            onClick={() => handleQuickQuestion('통계 알려줘')}
-            className="px-3 py-1 text-sm bg-purple-100 text-purple-700 rounded-full hover:bg-purple-200 transition-colors"
-            disabled={isLoading}
-          >
-            📊 통계
-          </button>
-          <button
-            onClick={() => handleQuickQuestion('사용법 알려줘')}
-            className="px-3 py-1 text-sm bg-orange-100 text-orange-700 rounded-full hover:bg-orange-200 transition-colors"
-            disabled={isLoading}
-          >
-            📖 사용법
-          </button>
+        <div className="mt-2 text-caption text-neutral-500 text-center">
+          Enter를 눌러 메시지를 전송하거나 위의 빠른 질문 버튼을 클릭하세요
         </div>
       </div>
     </div>

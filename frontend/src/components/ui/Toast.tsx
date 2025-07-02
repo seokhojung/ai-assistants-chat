@@ -64,7 +64,7 @@ interface ToastContainerProps {
 
 const ToastContainer: React.FC<ToastContainerProps> = ({ toasts, onRemove }) => {
   return (
-    <div className="fixed top-4 right-4 z-50 space-y-2">
+    <div className="fixed top-4 right-4 z-[9999] space-y-2 pointer-events-none">
       {toasts.map(toast => (
         <ToastItem
           key={toast.id}
@@ -83,10 +83,10 @@ interface ToastItemProps {
 
 const ToastItem: React.FC<ToastItemProps> = ({ toast, onRemove }) => {
   const typeStyles = {
-    success: 'bg-success-600 text-white border-success-600',
-    error: 'bg-danger-600 text-white border-danger-600',
-    warning: 'bg-warning-600 text-white border-warning-600',
-    info: 'bg-primary-600 text-white border-primary-600'
+    success: 'toast-success-solid text-white border-emerald-800 backdrop-blur-none shadow-2xl',
+    error: 'toast-error-solid text-white border-red-800 backdrop-blur-none shadow-2xl',
+    warning: 'toast-warning-solid text-white border-orange-700 backdrop-blur-none shadow-2xl',
+    info: 'toast-info-solid text-white border-blue-800 backdrop-blur-none shadow-2xl'
   };
 
   const icons = {
@@ -115,9 +115,15 @@ const ToastItem: React.FC<ToastItemProps> = ({ toast, onRemove }) => {
   return (
     <div
       className={cn(
-        'min-w-[300px] max-w-md p-4 rounded-lg shadow-lg border animate-slide-left',
+        'min-w-[300px] max-w-md p-4 rounded-lg shadow-2xl border-2 animate-slide-left pointer-events-auto opacity-100 relative',
         typeStyles[toast.type]
       )}
+      style={{
+        filter: 'none',
+        WebkitFilter: 'none',
+        backdropFilter: 'none',
+        WebkitBackdropFilter: 'none'
+      }}
     >
       <div className="flex items-start gap-3">
         <div className="flex-shrink-0">
